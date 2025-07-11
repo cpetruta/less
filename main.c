@@ -273,7 +273,7 @@ int main(int argc, constant char *argv[])
 		char *path  = getenv("HOMEPATH");
 		if (drive != NULL && path != NULL)
 		{
-			char *env = (char *) ecalloc(strlen(drive) + 
+			char *env = (char *) ecalloc(strlen(drive) +
 					strlen(path) + 6, sizeof(char));
 			strcpy(env, "HOME=");
 			strcat(env, drive);
@@ -364,14 +364,14 @@ int main(int argc, constant char *argv[])
 		/*
 		 * Because the "shell" doesn't expand filename patterns,
 		 * treat each argument as a filename pattern rather than
-		 * a single filename.  
+		 * a single filename.
 		 * Expand the pattern and iterate over the expanded list.
 		 */
 		struct textlist tlist;
 		constant char *filename;
 		char *gfilename;
 		char *qfilename;
-		
+
 		gfilename = lglob(*argv++);
 		init_textlist(&tlist, gfilename);
 		filename = NULL;
@@ -451,8 +451,8 @@ int main(int argc, constant char *argv[])
 		if (edit_first())
 			quit(QUIT_ERROR);
 		/*
-		 * See if file fits on one screen to decide whether 
-		 * to send terminal init. But don't need this 
+		 * See if file fits on one screen to decide whether
+		 * to send terminal init. But don't need this
 		 * if -X (no_init) overrides this (see init()).
 		 */
 		if (quit_if_one_screen)
@@ -599,7 +599,7 @@ public void quit(int status)
 	if (redraw_on_quit && term_init_done)
 	{
 		/*
-		 * The last file text displayed might have been on an 
+		 * The last file text displayed might have been on an
 		 * alternate screen, which now (since deinit) cannot be seen.
 		 * redraw_on_quit tells us to redraw it on the main screen.
 		 */
@@ -611,7 +611,7 @@ public void quit(int status)
 	save_cmdhist();
 	raw_mode(0);
 #if MSDOS_COMPILER && MSDOS_COMPILER != DJGPPC
-	/* 
+	/*
 	 * If we don't close 2, we get some garbage from
 	 * 2's buffer when it flushes automatically.
 	 * I cannot track this one down  RB
@@ -624,8 +624,8 @@ public void quit(int status)
 #endif
 	close_getchr();
 	exit(status);
-} 
-	
+}
+
 /*
  * Are all the features in the features mask allowed by security?
  */
