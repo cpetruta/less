@@ -1,3 +1,4 @@
+use crate::decode::{expand_cmd_tables, init_cmds, Tables};
 use crate::decode::{isnullenv, lgetenv};
 use crate::ifile::get_ifile;
 use crate::mark::Marks;
@@ -36,8 +37,6 @@ extern "C" {
     fn init_cmdhist();
     fn save_cmdhist();
     fn commands();
-    fn expand_cmd_tables();
-    fn init_cmds();
     fn check_altpipe_error();
     fn edit(filename: *const std::ffi::c_char) -> std::ffi::c_int;
     fn edit_first() -> std::ffi::c_int;
@@ -389,7 +388,8 @@ unsafe fn main_0(
     let mut less = Less::new(Marks::new());
     let marks = less.marks_ref_mut();
     less.marks.init();
-    init_cmds();
+    let mut tables = Tables::new();
+    init_cmds(&mut tables);
     init_poll();
     init_charset();
     init_line();
@@ -432,7 +432,7 @@ unsafe fn main_0(
         quit(0 as std::ffi::c_int);
     }
     get_term();
-    expand_cmd_tables();
+    expand_cmd_tables(&mut tables);
     let ed = lgetenv("VISUAL");
     if ed.is_err() {
         let edit = lgetenv("EDITOR");
