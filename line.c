@@ -35,8 +35,8 @@ static struct {
 } linebuf;
 
 /*
- * Buffer of ansi sequences which have been shifted off the left edge 
- * of the screen. 
+ * Buffer of ansi sequences which have been shifted off the left edge
+ * of the screen.
  */
 static struct xbuffer shifted_ansi;
 
@@ -388,7 +388,7 @@ public void plinestart(POSITION pos)
 		/*
 		 * Get the line number and put it in the current line.
 		 * {{ Note: since find_linenum calls forw_raw_line,
-		 *    it may seek in the input file, requiring the caller 
+		 *    it may seek in the input file, requiring the caller
 		 *    of plinestart to re-seek if necessary. }}
 		 * {{ Since forw_raw_line modifies linebuf, we must
 		 *    do this first, before storing anything in linebuf. }}
@@ -869,7 +869,7 @@ static int store_char(LWCHAR ch, int a, constant char *rep, POSITION pos)
 			if (highest_hilite != NULL_POSITION && pos != NULL_POSITION && pos > highest_hilite)
 				highest_hilite = pos;
 			in_hilite = TRUE;
-		} else 
+		} else
 		{
 			if (in_hilite)
 			{
@@ -1072,7 +1072,7 @@ public int pappend_b(char c, POSITION pos, lbool before_pendc)
 		}
 
 		/*
-		 * Don't put the CR into the buffer until we see 
+		 * Don't put the CR into the buffer until we see
 		 * the next char.  If the next char is a newline,
 		 * discard the CR.
 		 */
@@ -1150,7 +1150,7 @@ static int store_control_char(LWCHAR ch, constant char *rep, POSITION pos)
 	{
 		/* Output the character itself. */
 		STORE_CHAR(ch, AT_NORMAL, rep, pos);
-	} else 
+	} else
 	{
 		/* Output a printable representation of the character. */
 		STORE_PRCHAR(ch, pos);
@@ -1200,7 +1200,7 @@ static int store_ansi(LWCHAR ch, constant char *rep, POSITION pos)
 		break;
 	}
 	return (0);
-} 
+}
 
 static int store_bs(LWCHAR ch, constant char *rep, POSITION pos)
 {
@@ -1240,8 +1240,8 @@ static int do_append(LWCHAR ch, constant char *rep, POSITION pos)
 	{
 		/*
 		 * Overstrike the character at the current position
-		 * in the line buffer.  This will cause either 
-		 * underline (if a "_" is overstruck), 
+		 * in the line buffer.  This will cause either
+		 * underline (if a "_" is overstruck),
 		 * bold (if an identical character is overstruck),
 		 * or just replacing the character in the buffer.
 		 */
@@ -1385,7 +1385,7 @@ public void pdone(lbool endline, lbool chopped, lbool forw)
 
 		/*
 		 * Display the right scrolling char.
-		 * If we've already filled the rightmost screen char 
+		 * If we've already filled the rightmost screen char
 		 * (in the buffer), overwrite it.
 		 */
 		if (end_column >= sc_width + cshift)
@@ -1395,7 +1395,7 @@ public void pdone(lbool endline, lbool chopped, lbool forw)
 			linebuf.end = (size_t) right_curr;
 		}
 		add_attr_normal();
-		while (end_column < sc_width-1 + cshift) 
+		while (end_column < sc_width-1 + cshift)
 		{
 			/*
 			 * Space to last (rightmost) char on screen.
@@ -1429,7 +1429,7 @@ public void pdone(lbool endline, lbool chopped, lbool forw)
 	 * or if the terminal doesn't auto wrap,
 	 * or if this is really the end of the line AND the terminal ignores
 	 * a newline at the right edge.
-	 * (In the last case we don't want to output a newline if the terminal 
+	 * (In the last case we don't want to output a newline if the terminal
 	 * doesn't ignore it since that would produce an extra blank line.
 	 * But we do want to output a newline if the terminal ignores it in case
 	 * the next line is blank.  In that case the single newline output for
@@ -1438,7 +1438,7 @@ public void pdone(lbool endline, lbool chopped, lbool forw)
 	if (end_column < sc_width + cshift || !auto_wrap || (endline && ignaw) || ctldisp == OPT_ON)
 	{
 		add_linebuf('\n', AT_NORMAL, 0);
-	} 
+	}
 	else if (ignaw && end_column >= sc_width + cshift && forw)
 	{
 		/*
@@ -1448,11 +1448,11 @@ public void pdone(lbool endline, lbool chopped, lbool forw)
 		 * get in the state where a full screen width of characters
 		 * have been output but the cursor is sitting on the right edge
 		 * instead of at the start of the next line.
-		 * So we nudge them into wrapping by outputting a space 
-		 * character plus a backspace.  But do this only if moving 
+		 * So we nudge them into wrapping by outputting a space
+		 * character plus a backspace.  But do this only if moving
 		 * forward; if we're moving backward and drawing this line at
 		 * the top of the screen, the space would overwrite the first
-		 * char on the next line.  We don't need to do this "nudge" 
+		 * char on the next line.  We don't need to do this "nudge"
 		 * at the top of the screen anyway.
 		 */
 		add_linebuf(' ', AT_NORMAL, 1);
@@ -1538,8 +1538,8 @@ static void col_vs_pos(POSITION linepos, mutable struct col_pos *cp, POSITION sa
 				LWCHAR wch = get_wchar(utf8_buf);
 				int attr = 0; /* {{ ignoring attribute is not correct for magic cookie terminals }} */
 				utf8_len = 0;
-				if (utf_mode && ctldisp != OPT_ON && is_ubin_char(wch))
-					cw = (int) strlen(prutfchar(wch));
+            if (utf_mode && ctldisp != OPT_ON && is_ubin_char(wch))
+                cw = (int) strlen(prutfchar(wch));
 				else
 					cw = pwidth(wch, attr, prev_ch, attr);
 				prev_ch = wch;

@@ -1166,7 +1166,7 @@ pub unsafe extern "C" fn ecmd_decode(
  * Get the value of an environment variable.
  * Looks first in the lesskey file, then in the real environment.
  */
-pub fn lgetenv(key: &str) -> Result<*const std::ffi::c_char, VarError> {
+pub fn lgetenv(key: &str) -> Result<String, VarError> {
     // FIXME add the lesskey file lookup
     /*
     let mut a: i32;
@@ -1176,18 +1176,13 @@ pub fn lgetenv(key: &str) -> Result<*const std::ffi::c_char, VarError> {
         return s;
     }
     */
-    let s = env::var(key);
-    let ret = match s {
-        Ok(val) => Ok(CString::new(val.as_str()).unwrap().as_ptr()),
-        Err(e) => Err(e),
-    };
+    env::var(key)
     /*
     a = cmd_decode(list_sysvar_tables, var, &mut s);
     if a == 0o1 as std::ffi::c_int {
         return s;
     }
     */
-    ret
 }
 
 /*
@@ -1238,13 +1233,13 @@ pub unsafe extern "C" fn lgetenv_ext(
             .as_bytes_mut(),
         env_end as usize,
     );
-    r = lgetenv(var).unwrap();
+    r = CString::new(lgetenv(var).unwrap()).unwrap().as_ptr();
     pop_cmd_table(&mut tables.var_tables);
     return r;
 }
 
-pub unsafe extern "C" fn isnullenv(mut s: *const std::ffi::c_char) -> bool {
-    return s.is_null() || *s as std::ffi::c_int == '\0' as i32;
+pub unsafe extern "C" fn isnullenv(r: &Result<String, VarError>) -> bool {
+    r.is_err() || r.as_ref().unwrap() != ""
 }
 
 unsafe extern "C" fn gint(buf: &[u8]) -> usize {
@@ -1490,14 +1485,14 @@ unsafe extern "C" fn add_hometable(
     let mut r: std::ffi::c_int = 0;
     if let Some(name) = envname {
         if let Ok(efilename) = lgetenv(name) {
-            filename = save(efilename);
+            filename = save(CString::new(efilename).unwrap().as_ptr());
         }
     } else if sysvar {
         filename = save(def_filename);
     } else {
         if let Ok(xdg) = lgetenv("XDG_CONFIG_HOME") {
             filename = dirfile(
-                xdg,
+                CString::new(xdg).unwrap().as_ptr(),
                 &*def_filename.offset(1 as std::ffi::c_int as isize),
                 1 as std::ffi::c_int,
             );
@@ -1505,7 +1500,7 @@ unsafe extern "C" fn add_hometable(
         if filename.is_null() {
             if let Ok(home) = lgetenv("HOME") {
                 let mut cfg_dir: *mut std::ffi::c_char = dirfile(
-                    home,
+                    CString::new(home).unwrap().as_ptr(),
                     b".config\0" as *const u8 as *const std::ffi::c_char,
                     0 as std::ffi::c_int,
                 );
@@ -1544,7 +1539,7 @@ unsafe extern "C" fn add_content_table(
     sysvar: bool,
 ) {
     if let Ok(content) = lgetenv(envname) {
-        lesskey_content(tables, ptr_to_str(content).unwrap().as_bytes(), sysvar);
+        lesskey_content(tables, content.as_bytes(), sysvar);
     }
 }
 

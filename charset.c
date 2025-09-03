@@ -163,7 +163,7 @@ static void wchar_range_get(constant char **ss, struct wchar_range *range)
 	{
 		s = skip_uprefix(&s[1]);
 		range->last = lstrtoulc(s, &s, 16);
-	} else 
+	} else
 	{
 		range->last = range->first;
 	}
@@ -233,7 +233,7 @@ static void ichardef_utf(constant char *s)
  * one for each character in the charset.
  * If the string is shorter than 256 letters, missing letters
  * are taken to be identical to the last one.
- * A decimal number followed by a letter is taken to be a 
+ * A decimal number followed by a letter is taken to be a
  * repetition of the letter.
  *
  * Each letter is one of:
@@ -477,7 +477,7 @@ public void init_charset(void)
 
 	s = lgetenv("LESSBINFMT");
 	setfmt(s, &binfmt, &binattr, "*s<%02X>", TRUE);
-	
+
 	s = lgetenv("LESSUTFBINFMT");
 	setfmt(s, &utfbinfmt, &binattr, "<U+%04lX>", TRUE);
 }
@@ -664,26 +664,26 @@ public LWCHAR get_wchar(constant char *sp)
 		/* 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx */
 		return (LWCHAR) (
 			((p[0] & 0x07) << 18) |
-			((p[1] & 0x3F) << 12) | 
-			((p[2] & 0x3F) << 6) | 
+			((p[1] & 0x3F) << 12) |
+			((p[2] & 0x3F) << 6) |
 			(p[3] & 0x3F));
 #if 0
 	case 5:
 		/* 111110xx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx */
 		return (LWCHAR) (
 			((p[0] & 0x03) << 24) |
-			((p[1] & 0x3F) << 18) | 
-			((p[2] & 0x3F) << 12) | 
-			((p[3] & 0x3F) << 6) | 
+			((p[1] & 0x3F) << 18) |
+			((p[2] & 0x3F) << 12) |
+			((p[3] & 0x3F) << 6) |
 			(p[4] & 0x3F));
 	case 6:
 		/* 1111110x 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx */
 		return (LWCHAR) (
 			((p[0] & 0x01) << 30) |
-			((p[1] & 0x3F) << 24) | 
-			((p[2] & 0x3F) << 18) | 
-			((p[3] & 0x3F) << 12) | 
-			((p[4] & 0x3F) << 6) | 
+			((p[1] & 0x3F) << 24) |
+			((p[2] & 0x3F) << 18) |
+			((p[3] & 0x3F) << 12) |
+			((p[4] & 0x3F) << 6) |
 			(p[5] & 0x3F));
 #endif
 	}
@@ -694,7 +694,7 @@ public LWCHAR get_wchar(constant char *sp)
  */
 public void put_wchar(mutable char **pp, LWCHAR ch)
 {
-	if (!utf_mode || ch < 0x80) 
+	if (!utf_mode || ch < 0x80)
 	{
 		/* 0xxxxxxx */
 		*(*pp)++ = (char) ch;
@@ -725,7 +725,7 @@ public void put_wchar(mutable char **pp, LWCHAR ch)
 		*(*pp)++ = (char) (0x80 | ((ch >> 12) & 0x3F));
 		*(*pp)++ = (char) (0x80 | ((ch >> 6) & 0x3F));
 		*(*pp)++ = (char) (0x80 | (ch & 0x3F));
-	} else 
+	} else
 	{
 		/* 1111110x 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx */
 		*(*pp)++ = (char) (0xF0 | ((ch >> 30) & 0x01));
@@ -758,7 +758,7 @@ public LWCHAR step_charc(constant char **pp, signed int dir, constant char *limi
 	{
 		if (p >= limit)
 			ch = 0;
-		else 
+		else
 		{
 			len = utf_len(*p);
 			if (p + len > limit || !is_utf8_well_formed(p, len))
