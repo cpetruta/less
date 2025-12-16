@@ -77,3 +77,10 @@ pub const SF_SHELL: i32 = 1 << 9; /* Shell command (!) */
 pub const SF_STOP: i32 = 1 << 10; /* Stop signal */
 pub const SF_TAGS: i32 = 1 << 11; /* Tags */
 pub const SF_OSC8_OPEN: i32 = 1 << 12; /* OSC8 open */
+
+pub const TOP: i32 = 0;
+pub const TOP_PLUS_ONE: i32 = 1;
+pub const BOTTOM: i32 = -1;
+pub const BOTTOM_PLUS_ONE: i32 = -2;
+pub const MIDDLE: i32 = -3;
+pub const BOTTOM_OFFSET: i32 = -4;

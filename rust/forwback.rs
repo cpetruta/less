@@ -84,27 +84,41 @@ pub unsafe extern "C" fn eof_bell() {
         vbell();
     };
 }
+
+/*
+ * Check to see if the end of file is currently displayed.
+ */
 #[no_mangle]
-pub unsafe extern "C" fn eof_displayed(mut offset: lbool) -> lbool {
+pub unsafe extern "C" fn eof_displayed(offset: bool) -> bool {
     let mut pos: POSITION = 0;
     if ignore_eoi != 0 {
-        return LFALSE;
+        return false;
     }
-    if ch_length() == -(1 as std::ffi::c_int) as POSITION {
-        return LFALSE;
+    if ch_length() == NULL_POSITION {
+        /*
+         * If the file length is not known,
+         * we can't possibly be displaying EOF.
+         */
+        return false;
     }
+
+    /*
+     * If the bottom line is empty, we are at EOF.
+     * If the bottom line ends at the file length,
+     * we must be just at EOF.
+     */
     pos = position(if offset as std::ffi::c_uint != 0 {
-        -(4 as std::ffi::c_int)
+        BOTTOM_OFFSET
     } else {
-        -(2 as std::ffi::c_int)
+        BOTTOM_PLUS_ONE
     });
-    return (pos == -(1 as std::ffi::c_int) as POSITION || pos == ch_length() || pos == soft_eof)
-        as std::ffi::c_int as lbool;
+    pos == NULL_POSITION || pos == ch_length() || pos == soft_eof
 }
+
 #[no_mangle]
 pub unsafe extern "C" fn entire_file_displayed() -> lbool {
     let mut pos: POSITION = 0;
-    if eof_displayed(LTRUE) as u64 == 0 {
+    if !eof_displayed(true) {
         return LFALSE;
     }
     pos = position(0 as std::ffi::c_int);
@@ -374,7 +388,7 @@ pub unsafe extern "C" fn forward(
 ) {
     let mut pos: POSITION = 0;
     if get_quit_at_eof() != 0
-        && eof_displayed(LFALSE) as std::ffi::c_uint != 0
+        && eof_displayed(false)
         && ch_getflags() & 0o10 as std::ffi::c_int == 0
     {
         if edit_next(1 as std::ffi::c_int) != 0 {

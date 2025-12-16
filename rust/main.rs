@@ -530,6 +530,11 @@ unsafe fn main_0() -> i32 {
     quit(0 as std::ffi::c_int);
     return 0 as std::ffi::c_int;
 }
+
+/*
+ * Copy a string to a "safe" place
+ * (that is, to a buffer allocated by calloc).
+ */
 #[no_mangle]
 pub unsafe extern "C" fn saven(
     mut s: *const std::ffi::c_char,

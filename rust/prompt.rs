@@ -1,5 +1,10 @@
+use crate::charset::{prchar, prutfchar};
 use crate::defs::*;
+use crate::filename::{last_component, shell_quote};
+use crate::forwback::eof_displayed;
 use crate::ifile::{IFileHandle, IFileManager};
+use crate::linenum::currline;
+use std::sync::LazyLock;
 
 extern "C" {
     fn free(_: *mut std::ffi::c_void);
@@ -12,21 +17,13 @@ extern "C" {
     fn save(s: *const std::ffi::c_char) -> *mut std::ffi::c_char;
     fn ch_length() -> POSITION;
     fn ch_getflags() -> std::ffi::c_int;
-    fn prchar(c: LWCHAR) -> *const std::ffi::c_char;
-    fn prutfchar(ch: LWCHAR) -> *const std::ffi::c_char;
     fn put_wchar(pp: *mut *mut std::ffi::c_char, ch: LWCHAR);
     fn step_charc(
         pp: *mut *const std::ffi::c_char,
         dir: std::ffi::c_int,
         limit: *const std::ffi::c_char,
     ) -> LWCHAR;
-    fn shell_quote(s: *const std::ffi::c_char) -> *mut std::ffi::c_char;
-    fn last_component(name: *const std::ffi::c_char) -> *const std::ffi::c_char;
-    fn eof_displayed(offset: lbool) -> lbool;
-    fn nifile() -> std::ffi::c_int;
-    fn get_index(ifile: *mut std::ffi::c_void) -> std::ffi::c_int;
     fn find_linenum(pos: POSITION) -> LINENUM;
-    fn currline(where_0: std::ffi::c_int) -> LINENUM;
     fn vlinenum(linenum: LINENUM) -> LINENUM;
     fn percentage(num: POSITION, den: POSITION) -> std::ffi::c_int;
     fn position(sindex: std::ffi::c_int) -> POSITION;
@@ -34,7 +31,7 @@ extern "C" {
     fn ntags() -> std::ffi::c_int;
     fn curr_tag() -> std::ffi::c_int;
     static mut pr_type: std::ffi::c_int;
-    static mut new_file: lbool;
+    static mut new_file: bool;
     static mut linenums: std::ffi::c_int;
     static mut hshift: std::ffi::c_int;
     static mut sc_height: std::ffi::c_int;
@@ -43,364 +40,362 @@ extern "C" {
     static mut header_lines: std::ffi::c_int;
     static mut utf_mode: std::ffi::c_int;
     static mut curr_ifile: Option<IFileHandle>;
-    static mut osc8_path: *mut std::ffi::c_char;
-    static mut editor: *const std::ffi::c_char;
+    static mut osc8_path: Option<String>;
+    static mut editor: &'static str;
 }
-static mut s_proto: [std::ffi::c_char; 52] = unsafe {
-    *::core::mem::transmute::<&[u8; 52], &[std::ffi::c_char; 52]>(
-        b"?n?f%f .?m(%T %i of %m) ..?e(END) ?x- Next\\: %x..%t\0",
+static mut s_proto: LazyLock<String> = LazyLock::new(|| unsafe {
+    String::from("?n?f%f .?m(%T %i of %m) ..?e(END) ?x- Next\\: %x..%t")
+});
+static mut m_proto: LazyLock<String> = LazyLock::new(|| unsafe {
+    String::from("?n?f%f .?m(%T %i of %m) ..?e(END) ?x- Next\\: %x.:?pB%pB\\%:byte %bB?s/%s...%t")
+});
+static mut M_proto: LazyLock<String> = LazyLock::new(|| unsafe {
+    String::from("?f%f .?n?m(%T %i of %m) ..?ltlines %lt-%lb?L/%L. :byte %bB?s/%s. .?e(END) ?x- Next\\: %x.:?pB%pB\\%..%t")
+});
+static mut e_proto: LazyLock<String> = LazyLock::new(|| unsafe {
+    String::from(
+        "?f%f .?m(%T %i of %m) .?ltlines %lt-%lb?L/%L. .byte %bB?s/%s. ?e(END) :?pB%pB\\%..%t",
     )
-};
-static mut m_proto: [std::ffi::c_char; 77] = unsafe {
-    *::core::mem::transmute::<&[u8; 77], &[std::ffi::c_char; 77]>(
-        b"?n?f%f .?m(%T %i of %m) ..?e(END) ?x- Next\\: %x.:?pB%pB\\%:byte %bB?s/%s...%t\0",
-    )
-};
-static mut M_proto: [std::ffi::c_char; 102] = unsafe {
-    *::core::mem::transmute::<
-        &[u8; 102],
-        &[std::ffi::c_char; 102],
-    >(
-        b"?f%f .?n?m(%T %i of %m) ..?ltlines %lt-%lb?L/%L. :byte %bB?s/%s. .?e(END) ?x- Next\\: %x.:?pB%pB\\%..%t\0",
-    )
-};
-static mut e_proto: [std::ffi::c_char; 84] = unsafe {
-    *::core::mem::transmute::<&[u8; 84], &[std::ffi::c_char; 84]>(
-        b"?f%f .?m(%T %i of %m) .?ltlines %lt-%lb?L/%L. .byte %bB?s/%s. ?e(END) :?pB%pB\\%..%t\0",
-    )
-};
-static mut h_proto: [std::ffi::c_char; 80] = unsafe {
-    *::core::mem::transmute::<&[u8; 80], &[std::ffi::c_char; 80]>(
-        b"HELP -- ?eEND -- Press g to see it again:Press RETURN for more., or q when done\0",
-    )
-};
-static mut w_proto: [std::ffi::c_char; 17] =
-    unsafe { *::core::mem::transmute::<&[u8; 17], &[std::ffi::c_char; 17]>(b"Waiting for data\0") };
-static mut more_proto: [std::ffi::c_char; 59] = unsafe {
-    *::core::mem::transmute::<&[u8; 59], &[std::ffi::c_char; 59]>(
-        b"--More--(?eEND ?x- Next\\: %x.:?pB%pB\\%:byte %bB?s/%s...%t)\0",
-    )
-};
+});
+
+static mut h_proto: LazyLock<String> = LazyLock::new(|| unsafe {
+    String::from("HELP -- ?eEND -- Press g to see it again:Press RETURN for more., or q when done")
+});
+static mut w_proto: LazyLock<String> =
+    LazyLock::new(|| unsafe { String::from("Waiting for data") });
+pub static mut more_proto: LazyLock<String> = LazyLock::new(|| unsafe {
+    String::from("--More--(?eEND ?x- Next\\: %x.:?pB%pB\\%:byte %bB?s/%s...%t)")
+});
+
 #[no_mangle]
-pub static mut prproto: [*mut std::ffi::c_char; 3] =
-    [0 as *const std::ffi::c_char as *mut std::ffi::c_char; 3];
+pub static mut prproto: [String; 3] = [String::new(), String::new(), String::new()];
 #[no_mangle]
-pub static mut eqproto: *const std::ffi::c_char = unsafe { e_proto.as_ptr() };
+pub static mut eqproto: LazyLock<String> = LazyLock::new(|| unsafe { e_proto.clone() });
 #[no_mangle]
-pub static mut hproto: *const std::ffi::c_char = unsafe { h_proto.as_ptr() };
+pub static mut hproto: LazyLock<String> = LazyLock::new(|| unsafe { h_proto.clone() });
 #[no_mangle]
-pub static mut wproto: *const std::ffi::c_char = unsafe { w_proto.as_ptr() };
-static mut message: [std::ffi::c_char; 2048] = [0; 2048];
+pub static mut wproto: LazyLock<String> = LazyLock::new(|| unsafe { w_proto.clone() });
+static mut message: String = String::new();
 static mut mp: *mut std::ffi::c_char = 0 as *const std::ffi::c_char as *mut std::ffi::c_char;
+
+/*
+ * Initialize the prompt prototype strings.
+ */
 #[no_mangle]
 pub unsafe extern "C" fn init_prompt() {
-    prproto[0 as std::ffi::c_int as usize] = save(s_proto.as_ptr());
-    prproto[1 as std::ffi::c_int as usize] = save(if less_is_more != 0 {
-        more_proto.as_ptr()
+    prproto[0] = s_proto.clone();
+    prproto[1] = if less_is_more != 0 {
+        more_proto.clone()
     } else {
-        m_proto.as_ptr()
-    });
-    prproto[2 as std::ffi::c_int as usize] = save(M_proto.as_ptr());
-    eqproto = save(e_proto.as_ptr());
-    hproto = save(h_proto.as_ptr());
-    wproto = save(w_proto.as_ptr());
+        m_proto.clone()
+    };
+    prproto[2] = M_proto.clone();
+    *eqproto = e_proto.clone();
+    *hproto = h_proto.clone();
+    *wproto = w_proto.clone();
 }
-unsafe extern "C" fn ap_estr(mut s: *const std::ffi::c_char, mut nprt: lbool) {
-    let mut es: *const std::ffi::c_char = s.offset(strlen(s) as isize);
-    while *s as std::ffi::c_int != '\0' as i32 {
-        let mut ch: LWCHAR = step_charc(&mut s, 1 as std::ffi::c_int, es);
-        let mut ps: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
-        let mut ubuf: [std::ffi::c_char; 7] = [0; 7];
-        let mut plen: size_t = 0;
-        if nprt as u64 != 0 {
-            ps = if utf_mode != 0 {
-                prutfchar(ch)
+
+/*
+ * Append a string to the end of the message.
+ * nprt means the character *may* be nonprintable
+ * and should be converted to printable form.
+ */
+unsafe extern "C" fn ap_estr(s: &str, nprt: bool) {
+    while let Some(ch) = s.chars().next() {
+        if nprt {
+            if utf_mode != 0 {
+                message.push_str(&prutfchar(ch));
             } else {
-                prchar(ch)
+                message.push_str(&prchar(ch));
             };
         } else {
-            let mut up: *mut std::ffi::c_char = ubuf.as_mut_ptr();
-            put_wchar(&mut up, ch);
-            *up = '\0' as i32 as std::ffi::c_char;
-            ps = ubuf.as_mut_ptr();
+            // TODO do we need range check?
+            message.push(ch);
         }
-        plen = strlen(ps);
-        if mp.offset(plen as isize)
-            >= message
-                .as_mut_ptr()
-                .offset(2048 as std::ffi::c_int as isize)
-        {
-            break;
-        }
-        strcpy(mp, ps);
-        mp = mp.offset(plen as isize);
     }
-    *mp = '\0' as i32 as std::ffi::c_char;
 }
-unsafe extern "C" fn ap_str(mut s: *const std::ffi::c_char) {
-    ap_estr(s, LFALSE);
+unsafe extern "C" fn ap_str(s: &str) {
+    ap_estr(s, false);
 }
-unsafe extern "C" fn ap_char(mut c: std::ffi::c_char) {
-    if mp.offset(1 as std::ffi::c_int as isize)
-        >= message
-            .as_mut_ptr()
-            .offset(2048 as std::ffi::c_int as isize)
-    {
-        return;
-    }
-    let fresh0 = mp;
-    mp = mp.offset(1);
-    *fresh0 = c;
-    *mp = '\0' as i32 as std::ffi::c_char;
+
+/*
+ * Append a character to the end of the message.
+ */
+unsafe extern "C" fn ap_char(c: u8) {
+    message.push(c as char);
 }
+
+/*
+ * Append a POSITION (as a decimal integer) to the end of the message.
+ */
 unsafe extern "C" fn ap_pos(mut pos: POSITION) {
-    let mut buf: [std::ffi::c_char; 23] = [0; 23];
-    postoa(pos, buf.as_mut_ptr(), 10 as std::ffi::c_int);
-    ap_str(buf.as_mut_ptr());
+    ap_str(&pos.to_string());
 }
+
 unsafe extern "C" fn ap_linenum(mut linenum: LINENUM) {
-    let mut buf: [std::ffi::c_char; 23] = [0; 23];
-    linenumtoa(linenum, buf.as_mut_ptr(), 10 as std::ffi::c_int);
-    ap_str(buf.as_mut_ptr());
+    ap_str(&linenum.to_string());
 }
 
 /*
  * Append an integer to the end of the message.
  */
-unsafe extern "C" fn ap_int(mut num: std::ffi::c_int) {
-    let mut buf: [std::ffi::c_char; 13] = [0; 13];
-    inttoa(num, buf.as_mut_ptr(), 10 as std::ffi::c_int);
-    ap_str(buf.as_mut_ptr());
+unsafe extern "C" fn ap_int(num: i32) {
+    ap_str(&num.to_string());
 }
+
 unsafe extern "C" fn ap_quest() {
-    ap_str(b"?\0" as *const u8 as *const std::ffi::c_char);
+    ap_str("?");
 }
-unsafe extern "C" fn curr_byte(mut where_0: std::ffi::c_int) -> POSITION {
+unsafe extern "C" fn curr_byte(mut wh: std::ffi::c_int) -> POSITION {
     let mut pos: POSITION = 0;
-    pos = position(where_0);
+    pos = position(wh);
     while pos == -(1 as std::ffi::c_int) as POSITION
-        && where_0 >= 0 as std::ffi::c_int
-        && where_0 < sc_height - 1 as std::ffi::c_int
+        && wh >= 0 as std::ffi::c_int
+        && wh < sc_height - 1 as std::ffi::c_int
     {
-        where_0 += 1;
-        pos = position(where_0);
+        wh += 1;
+        pos = position(wh);
     }
-    if pos == -(1 as std::ffi::c_int) as POSITION {
+    if pos == NULL_POSITION {
         pos = ch_length();
     }
     return pos;
 }
-unsafe extern "C" fn cond(
-    ifiles: &mut IFileManager,
-    mut c: std::ffi::c_char,
-    mut where_0: std::ffi::c_int,
-) -> lbool {
+
+/*
+ * Return the value of a prototype conditional.
+ * A prototype string may include conditionals which consist of a
+ * question mark followed by a single letter.
+ * Here we decode that letter and return the appropriate boolean value.
+ */
+unsafe extern "C" fn cond(ifiles: &mut IFileManager, c: u8, wh: i32) -> bool {
     let mut len: POSITION = 0;
-    match c as std::ffi::c_int {
-        97 => return (mp > message.as_mut_ptr()) as std::ffi::c_int as lbool,
-        98 => {
-            return (curr_byte(where_0) != -(1 as std::ffi::c_int) as POSITION) as std::ffi::c_int
-                as lbool;
+    match c {
+        /* Anything in the message yet? */
+        //b'a' => return (mp > message.as_mut_ptr())
+        b'a' => return message.len() > 0,
+        b'b' => {
+            /* Current byte offset known? */
+            return (curr_byte(wh) != NULL_POSITION)
         }
-        99 => return (hshift != 0 as std::ffi::c_int) as std::ffi::c_int as lbool,
-        101 => return eof_displayed(LFALSE),
-        102 | 103 => {
-            return ifiles.get_filename(curr_ifile) != "-";
+        b'c' => return hshift != 0,
+        /* Current byte offset known? */
+        b'e' => return eof_displayed(false),
+        b'f' | b'g' => {
+            /* Filename known? */
+            return ifiles.get_filename(curr_ifile).unwrap().to_str() != Some("-");
         }
-        108 | 100 => {
+          b'l' /* Line number known? */
+        | b'd' /* Same as l */
+         => {
             if linenums == 0 {
-                return LFALSE;
+                return false;
             }
-            return (currline(where_0) != 0 as std::ffi::c_int as LINENUM) as std::ffi::c_int
-                as lbool;
+            return currline(wh) != 0;
         }
-        76 | 68 => {
-            return (linenums != 0 && ch_length() != -(1 as std::ffi::c_int) as POSITION)
-                as std::ffi::c_int as lbool;
+          b'L' /* Final line number known? */
+        | b'D' /* Final page number known? */
+        => {
+            return linenums != 0 && ch_length() != NULL_POSITION;
         }
-        109 => {
-            return (if ntags() != 0 {
-                (ntags() > 1 as std::ffi::c_int) as std::ffi::c_int
+        b'm' => {
+            /* More than one file? */
+            return if ntags() != 0 {
+                ntags() > 1
             } else {
-                (nifile() > 1 as std::ffi::c_int) as std::ffi::c_int
-            }) as lbool;
+                ifiles.nifile() > 1
+            }
         }
-        110 => {
+        b'n' => {
+            /* First prompt in a new file? */
             return (if ntags() != 0 {
-                LTRUE as std::ffi::c_int
-            } else if new_file as std::ffi::c_uint != 0 {
-                LTRUE as std::ffi::c_int
+                true
+            } else if new_file {
+                true
             } else {
-                LFALSE as std::ffi::c_int
-            }) as lbool;
+                false
+            })
         }
-        112 => {
-            return (curr_byte(where_0) != -(1 as std::ffi::c_int) as POSITION
-                && ch_length() > 0 as std::ffi::c_int as POSITION)
-                as std::ffi::c_int as lbool;
+        b'p' => {
+         /* Percent into file (bytes) known? */
+            return curr_byte(wh) != NULL_POSITION
+                && ch_length() > 0;
         }
-        80 => {
-            return (currline(where_0) != 0 as std::ffi::c_int as LINENUM
+        b'P' => {
+            /* Percent into file (lines) known? */
+            return currline(wh) != 0
                 && {
                     len = ch_length();
-                    len > 0 as std::ffi::c_int as POSITION
+                    len > 0
                 }
-                && find_linenum(len) != 0 as std::ffi::c_int as LINENUM)
-                as std::ffi::c_int as lbool;
+                && find_linenum(len) != 0
         }
-        115 | 66 => {
-            return (ch_length() != -(1 as std::ffi::c_int) as POSITION) as std::ffi::c_int
-                as lbool;
+        b's' | b'B' => {
+            /* Size of file known? */
+            return ch_length() != NULL_POSITION;
         }
-        120 => {
+        b'x' => {
+            /* Is there a "next" file? */
             if ntags() != 0 {
-                return LFALSE;
+                return false;
             }
-            return (next_ifile(curr_ifile) != 0 as *mut std::ffi::c_void) as std::ffi::c_int
-                as lbool;
+            return ifiles.next_ifile(curr_ifile).is_some()
         }
         _ => {}
     }
-    return LFALSE;
+    return false;
 }
-unsafe extern "C" fn protochar(
-    ifiles: &mut IFileManager,
-    mut c: std::ffi::c_char,
-    mut where_0: std::ffi::c_int,
-) {
+
+fn page_num(linenum: LINENUM, height: i32, head_lines: i32) -> i64 {
+    (linenum - 1) / (height - head_lines - 1) as i64 + 1
+}
+
+/*
+ * Decode a "percent" prototype character.
+ * A prototype string may include various "percent" escapes;
+ * that is, a percent sign followed by a single letter.
+ * Here we decode that letter and take the appropriate action,
+ * usually by appending something to the message being built.
+ */
+unsafe extern "C" fn protochar(ifiles: &mut IFileManager, c: u8, wh: i32) {
     let mut pos: POSITION = 0;
     let mut len: POSITION = 0;
     let mut linenum: LINENUM = 0;
     let mut last_linenum: LINENUM = 0;
     let mut h: Option<IFileHandle>;
-    let mut s: *mut std::ffi::c_char = 0 as *mut std::ffi::c_char;
-    match c as std::ffi::c_int {
-        98 => {
-            pos = curr_byte(where_0);
-            if pos != -(1 as std::ffi::c_int) as POSITION {
+    let mut s = String::new();
+    match c {
+        b'b' => {
+            /* Current byte offset */
+            pos = curr_byte(wh);
+            if pos != NULL_POSITION {
                 ap_pos(pos);
             } else {
                 ap_quest();
             }
         }
-        99 => {
+        b'c' => {
             ap_int(hshift);
         }
-        100 => {
-            linenum = currline(where_0);
-            if linenum > 0 as std::ffi::c_int as LINENUM
-                && sc_height > header_lines + 1 as std::ffi::c_int
-            {
-                ap_linenum(
-                    (linenum - 1 as std::ffi::c_int as LINENUM)
-                        / (sc_height - header_lines - 1 as std::ffi::c_int) as LINENUM
-                        + 1 as std::ffi::c_int as LINENUM,
-                );
+        b'd' => {
+            /* Current page number */
+            linenum = currline(wh);
+            if linenum > 0 && sc_height > header_lines + 1 {
+                ap_linenum(page_num(linenum, sc_height, header_lines));
             } else {
                 ap_quest();
             }
         }
-        68 => {
+        b'D' => {
+            /* Final page number */
+            /* Find the page number of the last byte in the file (len-1). */
             len = ch_length();
-            if len == -(1 as std::ffi::c_int) as POSITION {
+            if len == NULL_POSITION {
                 ap_quest();
-            } else if len == 0 as std::ffi::c_int as POSITION {
-                ap_linenum(0 as std::ffi::c_int as LINENUM);
+            } else if len == 0 {
+                /* An empty file has no pages. */
+                ap_linenum(0);
             } else {
-                linenum = find_linenum(len - 1 as std::ffi::c_int as POSITION);
-                if linenum <= 0 as std::ffi::c_int as LINENUM {
+                linenum = find_linenum(len - 1);
+                if linenum <= 0 {
                     ap_quest();
                 } else {
-                    ap_linenum(
-                        (linenum - 1 as std::ffi::c_int as LINENUM)
-                            / (sc_height - header_lines - 1 as std::ffi::c_int) as LINENUM
-                            + 1 as std::ffi::c_int as LINENUM,
-                    );
+                    ap_linenum(page_num(linenum, sc_height, header_lines));
                 }
             }
         }
-        69 => {
+        b'E' => {
+            /* Editor name */
             ap_str(editor);
         }
-        102 => {
-            ap_estr(ifiles.get_filename(curr_ifile), LTRUE);
+        b'f' => {
+            /* File name */
+            ap_estr(
+                ifiles.get_filename(curr_ifile).unwrap().to_str().unwrap(),
+                true,
+            );
         }
-        70 => {
-            ap_estr(last_component(ifiles.get_filename(curr_ifile)), LTRUE);
+        b'F' => {
+            /* Last component of file name */
+            ap_estr(
+                last_component(ifiles.get_filename(curr_ifile).unwrap()),
+                true,
+            );
         }
-        103 => {
-            let f_name = CString::new(ifiles.get_filename(curr_ifile).unwrap().to_str())
-                .expect("convert to CString failed")
-                .as_ptr();
-            s = shell_quote(f_name);
-            ap_str(s);
-            free(s as *mut std::ffi::c_void);
+        b'g' => {
+            /* Shell escaped file name */
+            let f_name = ifiles.get_filename(curr_ifile);
+            s = shell_quote(f_name.unwrap().to_str().unwrap()).expect("cannot shell quote");
+            ap_str(&s);
         }
-        105 => {
+        b'i' => {
+            /* Index into list of files */
             if ntags() != 0 {
                 ap_int(curr_tag());
             } else {
-                ap_int(get_index(curr_ifile));
+                ap_int(ifiles.get_index(curr_ifile).unwrap());
             }
         }
-        108 => {
-            linenum = currline(where_0);
-            if linenum != 0 as std::ffi::c_int as LINENUM {
+        b'l' => {
+            /* Current line number */
+            linenum = currline(wh);
+            if linenum != 0 {
                 ap_linenum(vlinenum(linenum));
             } else {
                 ap_quest();
             }
         }
-        76 => {
+        b'L' => {
+            /* Final line number */
             len = ch_length();
-            if len == -(1 as std::ffi::c_int) as POSITION
-                || len == 0 as std::ffi::c_int as POSITION
-                || {
-                    linenum = find_linenum(len);
-                    linenum <= 0 as std::ffi::c_int as LINENUM
-                }
-            {
+            if len == NULL_POSITION || len == 0 || {
+                linenum = find_linenum(len);
+                linenum <= 0
+            } {
                 ap_quest();
             } else {
-                ap_linenum(vlinenum(linenum - 1 as std::ffi::c_int as LINENUM));
+                ap_linenum(vlinenum(linenum - 1));
             }
         }
-        109 => {
-            let mut n: std::ffi::c_int = ntags();
+        b'm' => {
+            /* Number of files */
+            let mut n = ntags();
             if n != 0 {
                 ap_int(n);
             } else {
-                ap_int(nifile());
+                ap_int(ifiles.nifile() as i32);
             }
         }
-        111 => {
-            if !osc8_path.is_null() {
-                ap_str(osc8_path);
+        b'o' => {
+            /* path (URI without protocol) of selected OSC8 link */
+            if let Some(ref path) = osc8_path {
+                ap_str(&path);
             } else {
                 ap_quest();
             }
         }
-        112 => {
-            pos = curr_byte(where_0);
+        b'p' => {
+            /* Percent into file (bytes) */
+            pos = curr_byte(wh);
             len = ch_length();
-            if pos != -(1 as std::ffi::c_int) as POSITION && len > 0 as std::ffi::c_int as POSITION
-            {
+            if pos != NULL_POSITION && len > 0 {
                 ap_int(percentage(pos, len));
             } else {
                 ap_quest();
             }
         }
-        80 => {
-            linenum = currline(where_0);
-            if linenum == 0 as std::ffi::c_int as LINENUM
+        b'P' => {
+            /* Percent into file (lines) */
+            linenum = currline(wh);
+            if linenum == 0
                 || {
                     len = ch_length();
-                    len == -(1 as std::ffi::c_int) as POSITION
+                    len == NULL_POSITION
                 }
-                || len == 0 as std::ffi::c_int as POSITION
+                || len == 0
                 || {
                     last_linenum = find_linenum(len);
-                    last_linenum <= 0 as std::ffi::c_int as LINENUM
+                    last_linenum <= 0
                 }
             {
                 ap_quest();
@@ -408,7 +403,8 @@ unsafe extern "C" fn protochar(
                 ap_int(percentage(linenum, last_linenum));
             }
         }
-        115 | 66 => {
+        b's' | b'B' => {
+            /* Size of file */
             len = ch_length();
             if len != -(1 as std::ffi::c_int) as POSITION {
                 ap_pos(len);
@@ -416,28 +412,23 @@ unsafe extern "C" fn protochar(
                 ap_quest();
             }
         }
-        116 => {
-            while mp > message.as_mut_ptr()
-                && *mp.offset(-(1 as std::ffi::c_int) as isize) as std::ffi::c_int == ' ' as i32
-            {
-                mp = mp.offset(-1);
-            }
-            *mp = '\0' as i32 as std::ffi::c_char;
+        b't' => {
+            /* Truncate trailing spaces in the message */
+            message = message.trim_end().to_string();
         }
-        84 => {
+        b'T' => {
+            /* Type of list */
             if ntags() != 0 {
-                ap_str(b"tag\0" as *const u8 as *const std::ffi::c_char);
+                ap_str("tag");
             } else {
-                ap_str(b"file\0" as *const u8 as *const std::ffi::c_char);
+                ap_str("file");
             }
         }
-        120 => {
+        b'x' => {
+            /* Name of next file */
             h = ifiles.next_ifile(curr_ifile);
             if h.is_some() {
-                let f_name = CString::new(ifiles
-                    .get_filename(h)
-                    .unwrap().to_str()).as_ptr();
-                    .ap_str(ifiles.get_filename(h));
+                ap_str(ifiles.get_filename(h).unwrap().to_str().unwrap());
             } else {
                 ap_quest();
             }
@@ -445,156 +436,194 @@ unsafe extern "C" fn protochar(
         _ => {}
     };
 }
-unsafe extern "C" fn skipcond(mut p: *const std::ffi::c_char) -> *const std::ffi::c_char {
-    let mut iflevel: std::ffi::c_int = 0;
-    iflevel = 1 as std::ffi::c_int;
+
+/*
+ * Skip a false conditional.
+ * When a false condition is found (either a false IF or the ELSE part
+ * of a true IF), this routine scans the prototype string to decide
+ * where to resume parsing the string.
+ * We must keep track of nested IFs and skip them properly.
+ */
+unsafe extern "C" fn skipcond(p: &str) -> &str {
+    /*
+     * We came in here after processing a ? or :,
+     * so we start nested one level deep.
+     */
+    let mut iflevel = 1;
     loop {
-        p = p.offset(1);
-        match *p as std::ffi::c_int {
-            63 => {
+        match p.chars().next() {
+            Some('?') => {
+                /*
+                 * Start of a nested IF.
+                 */
                 iflevel += 1;
             }
-            58 => {
-                if iflevel == 1 as std::ffi::c_int {
+            Some(':') => {
+                /*
+                 * Else.
+                 * If this matches the IF we came in here with,
+                 * then we're done.
+                 */
+                if iflevel == 1 {
                     return p;
                 }
             }
-            46 => {
+            Some('.') => {
+                /*
+                 * Endif.
+                 * If this matches the IF we came in here with,
+                 * then we're done.
+                 */
                 iflevel -= 1;
-                if iflevel == 0 as std::ffi::c_int {
+                if iflevel == 0 {
                     return p;
                 }
             }
-            92 => {
-                if *p.offset(1 as std::ffi::c_int as isize) as std::ffi::c_int != '\0' as i32 {
-                    p = p.offset(1);
-                }
+            Some('\\') => {
+                /*
+                 * Backslash escapes the next character.
+                 */
+                _ = p.chars().next();
             }
-            0 => return p.offset(-(1 as std::ffi::c_int as isize)),
+
+            /*
+             * Whoops.  Hit end of string.
+             * This is a malformed conditional, but just treat it
+             * as if all active conditionals ends here.
+             */
+            None => return p,
             _ => {}
         }
     }
 }
-unsafe extern "C" fn wherechar(
-    mut p: *const std::ffi::c_char,
-    mut wp: *mut std::ffi::c_int,
-) -> *const std::ffi::c_char {
-    match *p as std::ffi::c_int {
-        98 | 100 | 108 | 112 | 80 => {
-            p = p.offset(1);
-            match *p as std::ffi::c_int {
-                116 => {
-                    *wp = 0 as std::ffi::c_int;
-                }
-                109 => {
-                    *wp = -(3 as std::ffi::c_int);
-                }
-                98 => {
-                    *wp = -(1 as std::ffi::c_int);
-                }
-                66 => {
-                    *wp = -(2 as std::ffi::c_int);
-                }
-                106 => {
-                    *wp = sindex_from_sline(jump_sline);
-                }
-                _ => {
-                    *wp = 0 as std::ffi::c_int;
-                    p = p.offset(-1);
-                }
+
+/*
+ * Decode a char that represents a position on the screen.
+ */
+unsafe extern "C" fn wherechar<'a>(p: &'a str, wp: &mut i32) -> &'a str {
+    let ret = p;
+    match p.chars().next() {
+        Some('b') | Some('d') | Some('l') | Some('p') | Some('P') => match p.chars().next() {
+            Some('t') => {
+                *wp = TOP;
             }
-        }
+            Some('m') => {
+                *wp = MIDDLE;
+            }
+            Some('b') => {
+                *wp = BOTTOM;
+            }
+            Some('B') => {
+                *wp = BOTTOM_PLUS_ONE;
+            }
+            Some('j') => {
+                *wp = sindex_from_sline(jump_sline);
+            }
+            _ => {
+                *wp = 0;
+            }
+        },
         _ => {}
     }
-    return p;
+    ret
 }
+
+/*
+ * Construct a message based on a prototype string.
+ */
 #[no_mangle]
-pub unsafe extern "C" fn pr_expand(
-    ifiles: &mut IFileManager,
-    mut proto: *const std::ffi::c_char,
-) -> *const std::ffi::c_char {
-    let mut p: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
-    let mut c: std::ffi::c_char = 0;
-    let mut where_0: std::ffi::c_int = 0;
-    mp = message.as_mut_ptr();
-    if *proto as std::ffi::c_int == '\0' as i32 {
-        return b"\0" as *const u8 as *const std::ffi::c_char;
+pub unsafe extern "C" fn pr_expand(ifiles: &mut IFileManager, proto: &str) -> String {
+    let mut p = "";
+    let mut c: u8 = 0;
+    let mut wh = 0;
+
+    let old_len = message.len();
+    if proto.len() == 0 {
+        return "".to_string();
     }
-    p = proto;
-    while *p as std::ffi::c_int != '\0' as i32 {
-        match *p as std::ffi::c_int {
-            92 => {
-                if *p.offset(1 as std::ffi::c_int as isize) as std::ffi::c_int != '\0' as i32 {
-                    p = p.offset(1);
-                    ap_char(*p);
+    let mut chars = proto.chars();
+    while let Some(ch) = chars.next() {
+        match ch {
+            /* Backslash escapes the next character */
+            '\\' => {
+                if let Some(c) = chars.next() {
+                    ap_char(c as u8);
                 }
             }
-            63 => {
-                p = p.offset(1);
-                c = *p;
-                if c as std::ffi::c_int == '\0' as i32 {
-                    p = p.offset(-1);
-                } else {
-                    where_0 = 0 as std::ffi::c_int;
-                    p = wherechar(p, &mut where_0);
-                    if cond(ifiles, c, where_0) as u64 == 0 {
+            /* Conditional (IF) */
+            '?' => {
+                if let None = proto.chars().next() {
+                    wh = 0;
+                    p = wherechar(p, &mut wh);
+                    if !cond(ifiles, c, wh) {
                         p = skipcond(p);
                     }
                 }
             }
-            58 => {
+            /* ELSE */
+            ':' => {
                 p = skipcond(p);
             }
-            46 => {}
-            37 => {
-                p = p.offset(1);
-                c = *p;
-                if c as std::ffi::c_int == '\0' as i32 {
-                    p = p.offset(-1);
-                } else {
-                    where_0 = 0 as std::ffi::c_int;
-                    p = wherechar(p, &mut where_0);
-                    protochar(ifiles, c, where_0);
-                }
+            /* ENDIF */
+            '.' => {}
+            /* Percent escape */
+            '%' => {
+                wh = 0;
+                p = wherechar(p, &mut wh);
+                protochar(ifiles, c, wh);
             }
             _ => {
-                ap_char(*p);
+                ap_char(ch as u8);
             }
         }
-        p = p.offset(1);
     }
-    if mp == message.as_mut_ptr() {
-        return b"\0" as *const u8 as *const std::ffi::c_char;
+
+    let new_len = message.len();
+    if new_len == old_len {
+        return String::from("");
     }
-    return message.as_mut_ptr();
+    message.clone()
 }
+
+/*
+ * Return a message suitable for printing by the "=" command.
+ */
 #[no_mangle]
-pub unsafe extern "C" fn eq_message(ifiles: &mut IFileManager) -> *const std::ffi::c_char {
-    return pr_expand(ifiles, eqproto);
+pub unsafe extern "C" fn eq_message(ifiles: &mut IFileManager) -> String {
+    pr_expand(ifiles, &eqproto)
 }
+
+/*
+ * Return a prompt.
+ * This depends on the prompt type (SHORT, MEDIUM, LONG), etc.
+ * If we can't come up with an appropriate prompt, return NULL
+ * and the caller will prompt with a colon.
+ */
 #[no_mangle]
-pub unsafe extern "C" fn pr_string(ifiles: &mut IFileManager) -> *const std::ffi::c_char {
-    let mut prompt: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
-    let mut type_0: std::ffi::c_int = 0;
-    type_0 = if less_is_more == 0 {
+pub unsafe extern "C" fn pr_string(ifiles: &mut IFileManager) -> String {
+    let ty = if less_is_more == 0 {
         pr_type
     } else if pr_type != 0 {
-        0 as std::ffi::c_int
+        0
     } else {
-        1 as std::ffi::c_int
+        1
     };
-    prompt = pr_expand(
+    let prompt = pr_expand(
         ifiles,
-        if ch_getflags() & 0o10 as std::ffi::c_int != 0 {
-            hproto
+        if ch_getflags() & CH_HELPFILE != 0 {
+            &hproto
         } else {
-            prproto[type_0 as usize] as *const std::ffi::c_char
+            &prproto[ty as usize]
         },
     );
-    new_file = LFALSE;
-    return prompt;
+    new_file = false;
+    prompt
 }
+
+/*
+ * Return a message suitable for printing while waiting in the F command.
+ */
 #[no_mangle]
-pub unsafe extern "C" fn wait_message(ifiles: &mut IFileManager) -> *const std::ffi::c_char {
-    return pr_expand(ifiles, wproto);
+pub unsafe extern "C" fn wait_message(ifiles: &mut IFileManager) -> String {
+    pr_expand(ifiles, &wproto)
 }

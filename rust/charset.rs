@@ -6,9 +6,8 @@ use crate::ubin_uni::ubin_table;
 use crate::wide_uni::wide_table;
 use crate::xbuf::XBuffer;
 use std::ffi::CStr;
-use std::ffi::CString;
-use std::fmt::Arguments;
 use std::sync::LazyLock;
+use strfmt::strfmt;
 
 type wchar_range_table = Vec<wchar_range>;
 
@@ -987,6 +986,9 @@ unsafe extern "C" fn set_charset() {
     ilocale();
 }
 
+/*
+ * Initialize charset data structures.
+ */
 pub unsafe extern "C" fn init_charset() {
     let mut s;
     // FIXME dfine LC_ALL (first param == 6 below) or use something else
@@ -996,9 +998,9 @@ pub unsafe extern "C" fn init_charset() {
     );
     set_charset();
     s = lgetenv("LESSBINFMT");
-    (binfmt, binattr) = setfmt(s.ok(), "*s<%02X>\0", true);
+    (binfmt, binattr) = setfmt(s.ok(), "*s<{:02X}>", true);
     s = lgetenv("LESSUTFBINFMT");
-    (utfbinfmt, binattr) = setfmt(s.ok(), "<U+%04lX>\0", true);
+    (utfbinfmt, binattr) = setfmt(s.ok(), "<U+{:04X}>", true);
 }
 
 /*
@@ -1047,37 +1049,20 @@ pub unsafe extern "C" fn prchar<'a>(c: char) -> String {
 /*
  * Return the printable form of a UTF-8 character.
  */
-pub unsafe extern "C" fn prutfchar(ch: char) -> &'static [u8] {
+pub unsafe extern "C" fn prutfchar(ch: char) -> String {
+    let mut s = String::new();
     static mut buf: [u8; 32] = [0; 32];
     let mut ch = ch;
     if ch as u32 == ESC {
-        strcpy(
-            CString::new(buf).unwrap().into_raw(),
-            b"ESC\0" as *const u8 as *const std::ffi::c_char,
-        );
+        s = String::from("ESC");
     } else if ch < 128 as char && ch.is_control() {
         if !char::from_u32(ch as u32 ^ 0o100).unwrap().is_control() {
-            snprintf(
-                CString::new(buf).unwrap().into_raw(),
-                ::core::mem::size_of::<[std::ffi::c_char; 32]>() as std::ffi::c_ulong,
-                b"^%c\0" as *const u8 as *const std::ffi::c_char,
-                ch as std::ffi::c_char as std::ffi::c_int ^ 0o100 as std::ffi::c_int,
-            );
+            s = format!("^{}", ch);
         } else {
-            snprintf(
-                CString::new(buf).unwrap().into_raw(),
-                ::core::mem::size_of::<[std::ffi::c_char; 32]>() as std::ffi::c_ulong,
-                binfmt.as_ptr() as *const i8,
-                ch as std::ffi::c_char as std::ffi::c_int,
-            );
+            s = strfmt!(&binfmt, ch.to_string()).unwrap();
         }
     } else if is_ubin_char(ch) {
-        snprintf(
-            CString::new(buf).unwrap().into_raw(),
-            ::core::mem::size_of::<[std::ffi::c_char; 32]>() as std::ffi::c_ulong,
-            utfbinfmt.as_ptr() as *const i8,
-            ch,
-        );
+        strfmt!(&utfbinfmt, ch.to_string());
     } else {
         if ch as i64 >= 0x80000000 {
             ch = char::from_u32(0xfffd).unwrap();
@@ -1085,7 +1070,7 @@ pub unsafe extern "C" fn prutfchar(ch: char) -> &'static [u8] {
         let idx = put_wchar(&mut buf, ch);
         buf[idx] = b'\0';
     }
-    &buf
+    s
 }
 
 pub unsafe extern "C" fn utf_len(ch: u8) -> usize {

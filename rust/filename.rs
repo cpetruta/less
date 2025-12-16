@@ -924,19 +924,13 @@ pub unsafe fn curr_ifile_changed<R>(ifiles: &mut IFileManager, fs: &FileState<Fi
     false
 }
 
-pub unsafe extern "C" fn last_component(
-    mut name: *const std::ffi::c_char,
-) -> *const std::ffi::c_char {
-    let mut slash: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
-    slash = name.offset(strlen(name) as isize);
-    while slash > name {
-        slash = slash.offset(-1);
-        if *slash as std::ffi::c_int
-            == *(b"/\0" as *const u8 as *const std::ffi::c_char) as std::ffi::c_int
-            || *slash as std::ffi::c_int == '/' as i32
-        {
-            return slash.offset(1 as std::ffi::c_int as isize);
-        }
-    }
-    return name;
+/*
+ * Return last component of a pathname.
+ */
+pub unsafe extern "C" fn last_component(name: &Path) -> &str {
+    name.iter()
+        .last()
+        .unwrap()
+        .to_str()
+        .expect("cannot convert to &str")
 }

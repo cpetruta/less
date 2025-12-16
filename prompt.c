@@ -13,7 +13,7 @@
  * There are three flavors of prompts, SHORT, MEDIUM and LONG,
  * selected by the -m/-M options.
  * There is also the "equals message", printed by the = command.
- * A prompt is a message composed of various pieces, such as the 
+ * A prompt is a message composed of various pieces, such as the
  * name of the file being viewed, the percentage into the file, etc.
  */
 
@@ -186,7 +186,7 @@ static POSITION curr_byte(int where)
 
 /*
  * Return the value of a prototype conditional.
- * A prototype string may include conditionals which consist of a 
+ * A prototype string may include conditionals which consist of a
  * question mark followed by a single letter.
  * Here we decode that letter and return the appropriate boolean value.
  */
@@ -297,7 +297,7 @@ static void protochar(char c, int where)
 			linenum = find_linenum(len - 1);
 			if (linenum <= 0)
 				ap_quest();
-			else 
+			else
 				ap_linenum(PAGE_NUM(linenum));
 		}
 		break;
@@ -407,7 +407,7 @@ static void protochar(char c, int where)
 
 /*
  * Skip a false conditional.
- * When a false condition is found (either a false IF or the ELSE part 
+ * When a false condition is found (either a false IF or the ELSE part
  * of a true IF), this routine scans the prototype string to decide
  * where to resume parsing the string.
  * We must keep track of nested IFs and skip them properly.

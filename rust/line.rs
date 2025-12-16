@@ -1588,7 +1588,7 @@ unsafe extern "C" fn do_append(ch: char, rep: Option<&[u8]>, pos: POSITION) -> i
     if (!utf_mode || ch.is_ascii()) && ch.is_control() {
         return store_control_char(ch, rep, pos);
     } else if utf_mode && ctldisp != 1 && is_ubin_char(ch) {
-        if store_string(prutfchar(ch), AT_BINARY, pos) != 0 {
+        if store_string(&prutfchar(ch).as_bytes(), AT_BINARY, pos) != 0 {
             return 1;
         }
     } else if store_char(ch, a, rep, pos) != 0 {

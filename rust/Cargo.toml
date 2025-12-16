@@ -17,3 +17,4 @@ crate-type = ["staticlib", "rlib"]
 c2rust-bitfields= "0.3"
 libc = "0.2"
 glob = "0.3.3"
+strfmt = "0.2.5"
