@@ -1,7 +1,11 @@
 use crate::defs::*;
+use crate::edit::edit_ifile;
+use crate::ifile::{IFileHandle, IFileManager};
 use crate::util::ptr_to_str;
 use ::c2rust_bitfields;
-use std::ptr;
+use std::io::{Read, Write};
+use std::path::Path;
+
 extern "C" {
     pub type _IO_wide_data;
     pub type _IO_codecvt;
@@ -29,14 +33,12 @@ extern "C" {
     fn ch_end_seek() -> std::ffi::c_int;
     fn ch_tell() -> POSITION;
     fn ch_getflags() -> std::ffi::c_int;
-    fn edit_ifile(ifile: *mut std::ffi::c_void) -> std::ffi::c_int;
     fn lrealpath(path: *const std::ffi::c_char) -> *mut std::ffi::c_char;
     fn prev_ifile(h: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
-    fn get_real_filename(ifile: *mut std::ffi::c_void) -> *const std::ffi::c_char;
     fn jump_loc(pos: POSITION, sline: std::ffi::c_int);
     fn error(fmt: *const std::ffi::c_char, parg: *mut PARG);
     fn get_scrpos(scrpos: *mut scrpos, where_0: std::ffi::c_int);
-    static mut curr_ifile: *mut std::ffi::c_void;
+    static mut curr_ifile: Option<IFileHandle>;
     static mut sc_height: std::ffi::c_int;
     static mut jump_sline: std::ffi::c_int;
     static mut perma_marks: std::ffi::c_int;
@@ -111,36 +113,44 @@ const CH_HELPFILE: i32 = 0o10;
 #[no_mangle]
 pub static mut marks_modified: bool = false;
 
-#[derive(Copy, Clone, PartialEq)]
+/*
+ * A mark is an ifile (input file) plus a position within the file.
+ */
+#[derive(Clone, PartialEq)]
 #[repr(C)]
 pub struct Mark {
-    pub m_letter: u8,
-    pub m_ifile: *mut std::ffi::c_void,
-    pub m_filename: *mut std::ffi::c_char,
-    pub m_scrpos: scrpos,
+    /*
+     * Normally m_ifile != IFILE_NULL and m_filename == NULL.
+     * For restored marks we set m_filename instead of m_ifile
+     * because we don't want to create an ifile until the
+     * user explicitly requests the file (by name or mark).
+     */
+    pub m_letter: u8,                 /* Associated character */
+    pub m_ifile: Option<IFileHandle>, /* Input file being marked */
+    pub m_filename: Option<String>,   /* Name of the input file */
+    pub m_scrpos: scrpos,             /* Position of the mark */
 }
 
 impl Mark {
     /*
      * Set m_ifile and clear m_filename.
      */
-    unsafe extern "C" fn mark_set_ifile(&mut self, mut ifile: *mut std::ffi::c_void) {
+    unsafe extern "C" fn mark_set_ifile(&mut self, mut ifile: Option<IFileHandle>) {
         self.m_ifile = ifile;
-        free(self.m_filename as *mut std::ffi::c_void);
-        self.m_filename = 0 as *mut std::ffi::c_char;
+        /* With m_ifile set, m_filename is no longer needed. */
+        self.m_filename = None;
     }
 
     /*
      * Populate the m_ifile member of a Mark struct from m_filename.
      */
-    unsafe extern "C" fn mark_get_ifile(&mut self) {
-        if self.m_ifile != 0 as *mut std::ffi::c_void {
+    unsafe extern "C" fn mark_get_ifile(&mut self, ifiles: &mut IFileManager) {
+        if self.m_ifile.is_some() {
             return;
         }
-        self.mark_set_ifile(get_ifile(
-            self.m_filename,
-            prev_ifile(0 as *mut std::ffi::c_void),
-        ));
+        let prev_ifile = ifiles.prev_ifile(None);
+        let ifile = ifiles.get_ifile(self.m_filename.clone().unwrap(), prev_ifile);
+        self.mark_set_ifile(Some(ifile));
     }
 
     /*
@@ -149,32 +159,38 @@ impl Mark {
     #[no_mangle]
     unsafe extern "C" fn cmark(
         &mut self,
-        mut ifile: *mut std::ffi::c_void,
+        mut ifile: Option<IFileHandle>,
         mut pos: POSITION,
         mut ln: i32,
     ) {
         self.m_ifile = ifile;
         self.m_scrpos.pos = pos;
         self.m_scrpos.ln = ln;
-        if !(self.m_filename).is_null() {
-            free(self.m_filename as *mut std::ffi::c_void);
+        self.m_filename = None;
+    }
+}
+
+impl Default for Mark {
+    fn default() -> Self {
+        Mark {
+            m_letter: 0,
+            m_ifile: None,
+            m_filename: None,
+            m_scrpos: scrpos { pos: 0, ln: 0 },
         }
-        self.m_filename = 0 as *mut std::ffi::c_char;
     }
 }
 
 pub struct Marks {
-    marks: [Mark; NMARKS as usize],
+    marks: Vec<Mark>,
 }
 
 impl Marks {
     pub fn new() -> Self {
-        let marks: [Mark; NMARKS as usize] = [Mark {
-            m_letter: 0,
-            m_ifile: 0 as *const std::ffi::c_void as *mut std::ffi::c_void,
-            m_filename: 0 as *const std::ffi::c_char as *mut std::ffi::c_char,
-            m_scrpos: scrpos { pos: 0, ln: 0 },
-        }; 54];
+        let mut marks: Vec<Mark> = Vec::with_capacity(NMARKS as usize);
+        for _ in 0..NMARKS {
+            marks.push(Mark::default());
+        }
         Marks { marks: marks }
     }
 
@@ -200,7 +216,7 @@ impl Marks {
                 }
             }
             self.marks[i as usize].m_letter = letter;
-            self.marks[i as usize].cmark(0 as *mut std::ffi::c_void, -1, -1);
+            self.marks[i as usize].cmark(None, -1, -1);
         }
     }
 
@@ -234,8 +250,8 @@ impl Marks {
     unsafe extern "C" fn getmark<'a>(&'a mut self, mut c: u8) -> Option<&'a mut Mark> {
         static mut sm: Mark = Mark {
             m_letter: 0,
-            m_ifile: 0 as *const std::ffi::c_void as *mut std::ffi::c_void,
-            m_filename: 0 as *const std::ffi::c_char as *mut std::ffi::c_char,
+            m_ifile: None,
+            m_filename: None,
             m_scrpos: scrpos { pos: 0, ln: 0 },
         };
         let mut m = &mut sm;
@@ -354,7 +370,7 @@ impl Marks {
      * Go to a Mark.
      */
     #[no_mangle]
-    pub unsafe extern "C" fn gomark(&mut self, mut c: u8) {
+    pub unsafe extern "C" fn gomark(&mut self, ifiles: &mut IFileManager, mut c: u8) {
         let mut scrpos: scrpos = scrpos { pos: 0, ln: 0 };
         if let Some(m) = self.getmark(c) {
             /*
@@ -366,7 +382,7 @@ impl Marks {
             if c == b'\'' && m.m_scrpos.pos == -1 {
                 m.cmark(curr_ifile, 0, jump_sline);
             }
-            m.mark_get_ifile();
+            m.mark_get_ifile(ifiles);
 
             /* Save scrpos; if it's LASTMARK it could change in edit_ifile. */
             scrpos = m.m_scrpos;
@@ -374,7 +390,7 @@ impl Marks {
                 /*
                  * Not in the current file; edit the correct file.
                  */
-                if edit_ifile(m.m_ifile) != 0 {
+                if edit_ifile(ifiles, m.m_ifile) != 0 {
                     return;
                 }
             }
@@ -431,10 +447,10 @@ impl Marks {
      * Clear the marks associated with a specified ifile.
      */
     #[no_mangle]
-    pub unsafe extern "C" fn unmark(&mut self, mut ifile: *mut std::ffi::c_void) {
+    pub unsafe extern "C" fn unmark(&mut self, ifile: IFileHandle) {
         for i in 0..NMARKS {
-            if self.marks[i as usize].m_ifile == ifile {
-                self.marks[i as usize].m_scrpos.pos = -1;
+            if self.marks[i as usize].m_ifile == Some(ifile) {
+                self.marks[i as usize].m_scrpos.pos = NULL_POSITION;
             }
         }
     }
@@ -444,17 +460,23 @@ impl Marks {
      * rather than m_ifile.
      */
     #[no_mangle]
-    pub unsafe extern "C" fn mark_check_ifile(&mut self, mut ifile: *mut std::ffi::c_void) {
-        let mut filename: *const std::ffi::c_char = get_real_filename(ifile);
+    pub unsafe extern "C" fn mark_check_ifile(
+        &mut self,
+        ifiles: &mut IFileManager,
+        ifile: Option<IFileHandle>,
+    ) {
+        let mut filename = ifiles.get_real_filename(ifile);
         for i in 0..NMARKS {
             let mut m = &mut self.marks[i as usize];
-            let mut mark_filename: *mut std::ffi::c_char = m.m_filename;
-            if !mark_filename.is_null() {
-                mark_filename = lrealpath(mark_filename);
-                if strcmp(filename, mark_filename) == 0 as std::ffi::c_int {
+            let mut mark_filename = m.m_filename.clone();
+            if let Some(mut mark_filename) = mark_filename {
+                mark_filename = std::fs::canonicalize(&mark_filename)
+                    .unwrap()
+                    .to_string_lossy()
+                    .to_string();
+                if filename == Some(Path::new(&mark_filename)) {
                     m.mark_set_ifile(ifile);
                 }
-                free(mark_filename as *mut std::ffi::c_void);
             }
         }
     }
@@ -465,87 +487,130 @@ impl Marks {
     #[no_mangle]
     pub unsafe extern "C" fn save_marks(
         &mut self,
-        mut fout: *mut FILE,
-        mut hdr: *const std::ffi::c_char,
+        ifiles: &mut IFileManager,
+        fout: &mut std::fs::File,
+        hdr: &str,
     ) {
-        let mut i: std::ffi::c_int = 0;
+        let mut i = 0;
         if perma_marks == 0 {
             return;
         }
-        fprintf(fout, b"%s\n\0" as *const u8 as *const std::ffi::c_char, hdr);
+        writeln!(fout, "{}", hdr);
         for i in 0..NMARKS {
-            let mut filename: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
-            let mut m = self.marks[i as usize];
+            let mut filename;
+            let mut m = &self.marks[i as usize];
             let mut pos_str: [i8; 23] = [0; 23];
-            if !m.m_scrpos.pos == -1 {
-                postoa(m.m_scrpos.pos, pos_str.as_mut_ptr(), 10);
-                filename = m.m_filename;
-                if filename.is_null() {
-                    filename = get_real_filename(m.m_ifile);
+            if !m.m_scrpos.pos == NULL_POSITION {
+                let pos_str = m.m_scrpos.pos.to_string();
+                filename = m.m_filename.clone();
+                if filename.is_none() {
+                    // FIXME ugly!!!
+                    filename = Some(
+                        ifiles
+                            .get_real_filename(m.m_ifile)
+                            .unwrap()
+                            .as_os_str()
+                            .to_string_lossy()
+                            .to_string(),
+                    );
                 }
-                if strcmp(filename, b"-\0" as *const u8 as *const std::ffi::c_char) != 0 {
-                    fprintf(
+                if filename != Some("-".to_string()) {
+                    writeln!(
                         fout,
-                        b"m %c %d %s %s\n\0" as *const u8 as *const std::ffi::c_char,
-                        m.m_letter as std::ffi::c_int,
+                        "m {} {} {} {}",
+                        m.m_letter,
                         m.m_scrpos.ln,
-                        pos_str.as_mut_ptr(),
-                        filename,
+                        pos_str,
+                        filename.unwrap(),
                     );
                 }
             }
         }
     }
 
+    fn to_int<'a>(s: &'a [u8]) -> (Option<i64>, &'a [u8]) {
+        let mut i = 0;
+        if s[i] == b'-' {
+            i += 1;
+        }
+
+        let start_digits = i;
+        while i < s.len() && s[i].is_ascii_digit() {
+            i += 1;
+        }
+
+        if i == start_digits {
+            return (None, s);
+        }
+
+        let (num, rest) = s.split_at(i);
+        (str::from_utf8(num).ok().unwrap().parse().ok(), rest)
+    }
+
     /*
      * Restore one Mark from the history file.
      */
     #[no_mangle]
-    pub unsafe extern "C" fn restore_mark(&mut self, mut line: *const std::ffi::c_char) {
-        let mut m: &mut Mark;
+    pub unsafe extern "C" fn restore_mark<'a>(&mut self, mut line: &'a [u8]) -> &'a [u8] {
+        let mut m: Option<&mut Mark>;
         let mut ln = 0;
         let mut pos: POSITION = 0;
+        let mut curr_pos = 0;
 
-        let fresh0 = line;
-        line = line.offset(1);
-        if *fresh0 as std::ffi::c_int != 'm' as i32 {
-            return;
+        if line[curr_pos] != b'm' {
+            return &line[curr_pos + 1..];
         }
-        while *line as std::ffi::c_int == ' ' as i32 {
-            line = line.offset(1);
+        // Skip whitespaces
+        while line[curr_pos] == b' ' {
+            curr_pos += 1;
         }
-        let fresh1 = line;
-        line = line.offset(1);
-        let mut mm = self.getumark(*fresh1 as u8);
-        if mm.is_none() {
-            return;
-        } else {
-            m = mm.unwrap();
+        m = self.getumark(line[curr_pos]);
+        curr_pos += 1;
+        if m.is_none() {
+            return &line[curr_pos..];
         }
-        while *line as std::ffi::c_int == ' ' as i32 {
-            line = line.offset(1);
+        // Skip whitespaces
+        while line[curr_pos] == b' ' {
+            curr_pos += 1;
         }
-        ln = lstrtoic(line, &mut line, 10 as std::ffi::c_int);
+        let (l, mut line) = Self::to_int(&line[curr_pos..]);
+        match l {
+            Some(l) => ln = l,
+            None => ln = -1,
+        }
+        curr_pos = 0;
         if ln < 0 {
-            return;
+            return &line;
         }
         if ln < 1 {
             ln = 1;
         }
-        if ln > sc_height {
-            ln = sc_height;
+        if ln > sc_height.into() {
+            ln = sc_height as i64;
         }
-        while *line as std::ffi::c_int == ' ' as i32 {
-            line = line.offset(1);
+        // Skip whitespaces
+        while line[curr_pos] == b' ' {
+            curr_pos += 1;
         }
-        pos = lstrtoposc(line, &mut line, 10 as std::ffi::c_int);
-        if pos < 0 as std::ffi::c_int as POSITION {
-            return;
+        let (p, mut line) = Self::to_int(&line[curr_pos..]);
+        match p {
+            Some(p) => pos = p,
+            None => pos = -1,
         }
-        while *line as std::ffi::c_int == ' ' as i32 {
-            line = line.offset(1);
+        if pos < 0 {
+            return &line;
         }
-        m.cmark(0 as *mut std::ffi::c_void, pos, ln);
-        m.m_filename = save(line);
+        curr_pos = 0;
+        // Skip whitespaces
+        while line[curr_pos] == b' ' {
+            curr_pos += 1;
+        }
+        if let Some(m) = m {
+            m.cmark(None, pos, ln as i32);
+            let mut s = String::new();
+            line.read_to_string(&mut s);
+            m.m_filename = Some(s);
+        }
+        &line[curr_pos..]
     }
 }
