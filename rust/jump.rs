@@ -62,6 +62,9 @@ pub union parg {
     pub p_char: std::ffi::c_char,
 }
 pub type PARG = parg;
+/*
+ * Jump to the end of the file.
+ */
 #[no_mangle]
 pub unsafe extern "C" fn jump_forw() {
     let mut pos: POSITION = 0;
@@ -78,7 +81,8 @@ pub unsafe extern "C" fn jump_forw() {
         eof_bell();
         return;
     }
-    lastmark();
+    // XXX add it back
+    // lastmark();
     pos_clear();
     pos = back_line(end_pos, 0 as *mut lbool);
     if pos == -(1 as std::ffi::c_int) as POSITION {
@@ -281,7 +285,8 @@ pub unsafe extern "C" fn jump_loc(mut pos: POSITION, mut sline: std::ffi::c_int)
             }
             nline += 1;
         }
-        lastmark();
+        // XXX
+        // lastmark();
         squished = LFALSE;
         screen_trashed_num(0 as std::ffi::c_int);
         forw(
@@ -309,7 +314,8 @@ pub unsafe extern "C" fn jump_loc(mut pos: POSITION, mut sline: std::ffi::c_int)
             }
             nline += 1;
         }
-        lastmark();
+        // XXX
+        // lastmark();
         if top_scroll == 0 {
             clear();
         } else {

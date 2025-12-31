@@ -1,5 +1,7 @@
 use crate::decode::lgetenv;
+use bitflags::bitflags;
 use crate::defs::*;
+use crate::util::str_to_int;
 use std::ffi::CString;
 
 extern "C" {
@@ -44,770 +46,735 @@ extern "C" {
 #[derive(Copy, Clone)]
 #[repr(C)]
 pub union parg {
-    pub p_string: *const std::ffi::c_char,
-    pub p_int: std::ffi::c_int,
+    pub p_string: Option<String>,
+    pub p_int: i32,
     pub p_linenum: LINENUM,
-    pub p_char: std::ffi::c_char,
+    pub p_char: u8,
 }
 pub type PARG = parg;
-#[derive(Copy, Clone)]
-#[repr(C)]
-pub struct loption {
-    pub oletter: std::ffi::c_char,
-    pub onames: *mut optname,
-    pub otype: std::ffi::c_int,
-    pub odefault: std::ffi::c_int,
-    pub ovar: *mut std::ffi::c_int,
-    pub ofunc: Option<unsafe extern "C" fn(std::ffi::c_int, *const std::ffi::c_char) -> ()>,
-    pub odesc: [*const std::ffi::c_char; 3],
-}
+
 #[derive(Copy, Clone)]
 #[repr(C)]
 pub struct optname {
-    pub oname: *const std::ffi::c_char,
-    pub onext: *mut optname,
+    /// List of synonymus long (GNU-style) option names
+    oname: Vec<String>,
 }
-static mut pendopt: *mut loption = 0 as *const loption as *mut loption;
-#[no_mangle]
-pub static mut plusoption: lbool = LFALSE;
-unsafe extern "C" fn opt_desc(mut o: *mut loption) -> *const std::ffi::c_char {
-    static mut buf: [std::ffi::c_char; 42] = [0; 42];
-    if (*o).oletter as std::ffi::c_int == '\u{1}' as i32 {
-        snprintf(
-            buf.as_mut_ptr(),
-            ::core::mem::size_of::<[std::ffi::c_char; 42]>() as std::ffi::c_ulong,
-            b"--%s\0" as *const u8 as *const std::ffi::c_char,
-            (*(*o).onames).oname,
-        );
-    } else {
-        snprintf(
-            buf.as_mut_ptr(),
-            ::core::mem::size_of::<[std::ffi::c_char; 42]>() as std::ffi::c_ulong,
-            b"-%c (--%s)\0" as *const u8 as *const std::ffi::c_char,
-            (*o).oletter as std::ffi::c_int,
-            (*(*o).onames).oname,
-        );
+
+#[derive(Copy, Clone)]
+#[repr(C)]
+pub struct LOption {
+    /// The controlling letter (a-z)
+    opt_char: char,
+    /// Long (GNU-style) option name
+    name: Option<&'static str>,
+    /// Type of the option
+    opt_type: OptType,
+    flags: OptFlags,
+    /// Default value
+    default: i32,
+    /// Associated variable
+    ovar: Option<&'static mut i32>,
+    /// Special handling function
+    pub handler: Option<fn(OptAction, &str)>,
+    /// Description fore each value
+    pub odesc: [&'static str; 3],
+    kind: OptType,
+}
+
+bitflags! {
+    struct OptFlags: u32 {
+        const UNSUPPORTED = 0x01;
+        const NO_TOGGLE   = 0x02;
+        const NO_QUERY    = 0x04;
+        const REPAINT     = 0x08;
+        const HL_REPAINT  = 0x10;
     }
-    return buf.as_mut_ptr();
 }
-#[no_mangle]
-pub unsafe extern "C" fn propt(mut c: std::ffi::c_char) -> *const std::ffi::c_char {
-    static mut buf: [std::ffi::c_char; 33] = [0; 33];
-    sprintf(
-        buf.as_mut_ptr(),
-        b"-%s\0" as *const u8 as *const std::ffi::c_char,
-        prchar(c as LWCHAR),
-    );
-    return buf.as_mut_ptr();
+
+#[derive(Copy, Clone, PartialEq)]
+enum OptType {
+    Bool,
+    Triple,
+    String,
+    Number,
 }
+
+#[derive(Copy, Clone)]
+enum OptAction {
+    Query,
+    Toggle,
+}
+
+#[derive(Copy, Clone)]
+enum InitState {
+    Init,
+}
+
+#[derive(Copy, Clone, PartialEq)]
+enum ToggleHow {
+    NoToggle,
+    Toggle,
+    Unset,
+    Set,
+}
+
+/// Global state
+struct ScanContext {
+    pending: Option<&'static LOption>,
+    plus_option: bool,
+    less_is_more: bool,
+}
+
+struct ConvertError;
+
+static mut pendopt: Option<String> = None;
+pub static mut plusoption: bool = false;
+/// Max length of a long option name
+const OPTNAME_MAX: usize = 32;
+/// Invalid option letter
+const OLETTER_NONE: u8 = b'\1';
+
+/// Return a printable description of an option
 #[no_mangle]
-pub unsafe extern "C" fn scan_option(mut s: *const std::ffi::c_char, mut is_env: lbool) {
-    let mut o: *mut loption = 0 as *mut loption;
-    let mut optc: std::ffi::c_char = 0;
-    let mut optname: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
-    let mut printopt: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
-    let mut str: *mut std::ffi::c_char = 0 as *mut std::ffi::c_char;
-    let mut set_default: lbool = LFALSE;
-    let mut lc: lbool = LFALSE;
-    let mut ambig: lbool = LFALSE;
-    let mut parg: PARG = parg {
-        p_string: 0 as *const std::ffi::c_char,
-    };
-    if s.is_null() {
+unsafe extern "C" fn opt_desc(o: loption) -> &str {
+    if o.oletter == OLETTER_NONE {
+        format!("--{}", o.onames[0].oname);
+    } else {
+        format!("-{} (--{})", o.oletter, o.onames[0].oname)
+    }
+}
+
+/// Return a string suitable for printing as the "name" of an option.
+/// For example, if the option letter is 'x', just return "-x".
+#[no_mangle]
+pub unsafe extern "C" fn propt(c: u8) -> &str {
+    format!("-{}", c)
+}
+
+/// Scan an argument (either from the command line or from the
+/// LESS environment variable) and process it.
+#[no_mangle]
+unsafe fn scan_option(ctx: &mut ScanContext, mut s: &str, is_env: bool) {
+    if s.is_empty() {
         return;
     }
-    if !pendopt.is_null() {
-        if (*pendopt).otype & 0o2000 as std::ffi::c_int == 0 {
-            match (*pendopt).otype
-                & (0o1 as std::ffi::c_int
-                    | 0o2 as std::ffi::c_int
-                    | 0o4 as std::ffi::c_int
-                    | 0o10 as std::ffi::c_int
-                    | 0o20 as std::ffi::c_int)
-            {
-                8 => {
-                    (Some(((*pendopt).ofunc).expect("non-null function pointer")))
-                        .expect("non-null function pointer")(
-                        0 as std::ffi::c_int, s
-                    );
+
+    /* Handle pending option argument */
+    if let Some(opt) = ctx.pending.take() {
+        if !opt.flags.contains(OptFlags::UNSUPPORTED) {
+            match opt.opt_type {
+                OptType::String => {
+                    if let Some(handler) = opt.handler {
+                        opt.handler(InitState::Init, Some(s.to_string()));
+                    }
                 }
-                4 => {
-                    printopt = opt_desc(pendopt);
-                    *(*pendopt).ovar = getnumc(&mut s, printopt, 0 as *mut lbool);
+                OptType::Number => {
+                    if let Some(val) = opt.value {
+                        *val = getnumc(s, printopt, None);
+                    }
                 }
                 _ => {}
             }
         }
-        pendopt = 0 as *mut loption;
         return;
     }
-    set_default = LFALSE;
-    optname = 0 as *const std::ffi::c_char;
-    while *s as std::ffi::c_int != '\0' as i32 {
-        let fresh0 = s;
-        s = s.offset(1);
-        optc = *fresh0;
-        match optc as std::ffi::c_int {
-            32 | 9 | 36 => {
-                continue;
-            }
-            45 => {
-                if *s as std::ffi::c_int == '-' as i32 {
-                    s = s.offset(1);
-                    optname = s;
+
+    let mut set_default = false;
+    let mut opt_name: Option<&str> = None;
+
+    while !s.is_empty() {
+        let (c, rest) = s.split_at(1);
+        let mut optc = c.chars().next().unwrap();
+        s = rest;
+
+        match optc {
+            ' ' | '\t' => continue,
+
+            '-' => {
+                if s.starts_with('-') {
+                    opt_name = Some(&s[1..]);
                 }
-                set_default = (*s as std::ffi::c_int == '+' as i32) as std::ffi::c_int as lbool;
-                if set_default as u64 != 0 {
-                    s = s.offset(1);
+                set_default = s.starts_with('+');
+                if set_default {
+                    s = &s[1..];
                 }
-                if optname.is_null() {
+                if opt_name.is_some() {
                     continue;
                 }
-                optname = s;
             }
-            43 => {
-                plusoption = LTRUE;
-                s = optstring(
-                    s,
-                    &mut str,
-                    propt('+' as i32 as std::ffi::c_char),
-                    0 as *const std::ffi::c_char,
-                );
-                if s.is_null() {
-                    return;
+
+            '+' => {
+                ctx.plus_option = true;
+                let (cmd, rest) = extract_string(s);
+                s = rest;
+
+                if cmd.starts_with('+') {
+                    every_first_cmd = &cmd[1..].to_string();
                 }
-                if *str as std::ffi::c_int == '+' as i32 {
-                    if !every_first_cmd.is_null() {
-                        free(every_first_cmd as *mut std::ffi::c_void);
-                    }
-                    every_first_cmd = save(str.offset(1 as std::ffi::c_int as isize));
-                } else {
-                    ungetsc(str);
-                    ungetcc_end_command();
-                }
-                free(str as *mut std::ffi::c_void);
                 continue;
             }
-            48 | 49 | 50 | 51 | 52 | 53 | 54 | 55 | 56 | 57 => {
-                s = s.offset(-1);
-                optc = 'z' as i32 as std::ffi::c_char;
+
+            '0'..='9' => {
+                s = c.to_owned().as_str();
+                optc = 'z';
             }
-            110 => {
-                if less_is_more != 0 {
-                    optc = 'z' as i32 as std::ffi::c_char;
-                }
+
+            'n' if ctx.less_is_more => {
+                optc = 'z';
             }
+
             _ => {}
         }
-        ambig = LFALSE;
-        if optname.is_null() {
-            printopt = propt(optc);
-            lc = (optc as std::ffi::c_int >= 'a' as i32 && optc as std::ffi::c_int <= 'z' as i32)
-                as std::ffi::c_int as lbool;
-            o = findopt(optc as std::ffi::c_int);
+
+        /* Lookup option */
+        let (opt, print_name) = if let Some(name) = opt_name.take() {
+            match find_option_by_name(name) {
+                Some(o) => (o, name),
+                None => {
+                    error(b"No such option" as *const u8 as *const std::ffi::c_char,
+                        0 as *mut std::ffi::c_void as *mut PARG);
+                    return;
+                }
+            }
         } else {
-            printopt = optname;
-            lc = (*optname.offset(0 as std::ffi::c_int as isize) as std::ffi::c_int >= 'a' as i32
-                && *optname.offset(0 as std::ffi::c_int as isize) as std::ffi::c_int <= 'z' as i32)
-                as std::ffi::c_int as lbool;
-            o = findopt_name(&mut optname, 0 as *mut *const std::ffi::c_char, &mut ambig);
-            s = optname;
-            optname = 0 as *const std::ffi::c_char;
-            if !(*s as std::ffi::c_int == '\0' as i32 || *s as std::ffi::c_int == ' ' as i32) {
-                if *s as std::ffi::c_int == '=' as i32 {
-                    if !o.is_null()
-                        && (*o).otype
-                            & (0o1 as std::ffi::c_int
-                                | 0o2 as std::ffi::c_int
-                                | 0o4 as std::ffi::c_int
-                                | 0o10 as std::ffi::c_int
-                                | 0o20 as std::ffi::c_int)
-                            != 0o10 as std::ffi::c_int
-                        && (*o).otype
-                            & (0o1 as std::ffi::c_int
-                                | 0o2 as std::ffi::c_int
-                                | 0o4 as std::ffi::c_int
-                                | 0o10 as std::ffi::c_int
-                                | 0o20 as std::ffi::c_int)
-                            != 0o4 as std::ffi::c_int
-                    {
-                        parg.p_string = printopt;
+            match find_option_by_char(optc) {
+                Some(o) => (o, optc.to_string().as_str()),
+                None => {
+                    error(b"No such option" as *const u8 as *const std::ffi::c_char,
+                        0 as *mut std::ffi::c_void as *mut PARG);
+                    return;
+                }
+            }
+        };
+
+        let mut arg: Option<String> = None;
+
+        match opt.opt_type {
+            OptType::Bool => {
+                if let Some(v) = opt.value {
+                    *v = if set_default { opt.default } else { !opt.default };
+                }
+            }
+
+            OptType::Triple => {
+                if let Some(v) = opt.value {
+                    if set_default {
+                        *v = opt.default;
+                    } else if is_env && opt.opt_char == 'r' {
+                        *v = 2;
+                    } else {
+                        *v = flip_triple(opt.default, optc.is_lowercase());
+                    }
+                }
+            }
+
+            OptType::String => {
+                if s.is_empty() {
+                    ctx.pending = Some(opt);
+                    return;
+                }
+                let (val, rest) = optstring(s, printopt, o.odesc[1]);
+                arg = Some(val);
+                s = rest;
+            }
+
+            OptType::Number => {
+                if s.is_empty() {
+                    ctx.pending = Some(opt);
+                    return;
+                }
+                if let Some(v) = opt.value {
+                    *v = parse_number(s);
+                }
+            }
+        }
+
+        if let Some(handler) = opt.handler {
+            handler(InitState::Init, arg);
+        }
+    }
+}
+
+/// Toggle command line flags from within the program.
+/// Used by the "-" and "_" commands.
+/// how_toggle may be:
+///      OPT_NO_TOGGLE   just report the current setting, without changing it.
+///      OPT_TOGGLE      invert the current setting
+///      OPT_UNSET       set to the default value
+///      OPT_SET         set to the inverse of the default value
+#[no_mangle]
+fn toggle_option(
+    o: Option<&LOption>,
+    lower: bool,
+    mut s: &str,
+    mut how_toggle: ToggleHow,
+    no_prompt: bool,
+) {
+    let o = match o {
+        Some(opt) => opt,
+        None => {
+            error(
+                b"No such option\0"
+                as *const u8 as *const std::ffi::c_char,
+                0 as *mut std::ffi::c_void as *mut PARG
+            );
+            return;
+        }
+    };
+
+    if how_toggle == ToggleHow::Toggle && o.flags.contains(OptFlags::NO_TOGGLE) {
+        error("Cannot change the %s option", Some(opt_desc(o)));
+        return;
+    }
+
+    if how_toggle == ToggleHow::NoToggle && o.flags.contains(OptFlags::NO_QUERY) {
+        error("Cannot query the %s option", Some(opt_desc(o)));
+        return;
+    }
+
+    /*
+     * Detect fake toggle for string/number options
+     *
+	 * Check for something which appears to be a do_toggle
+	 * (because the "-" command was used), but really is not.
+	 * This could be a string option with no string, or
+	 * a number option with no number.
+     */
+    match o.kind {
+        OptType::String | OptType::Number => {
+            if how_toggle == ToggleHow::Toggle && s.is_empty() {
+                how_toggle = ToggleHow::NoToggle;
+            }
+        }
+        _ => {}
+    }
+
+    /*
+     * Actually change the option
+     */
+    if how_toggle != ToggleHow::NoToggle {
+        match o.kind {
+            OptType::Bool => {
+                if let Some(v) = o.ovar {
+                    match how_toggle {
+                        ToggleHow::Toggle => *v = !*v,
+                        ToggleHow::Unset  => *v = o.default,
+                        ToggleHow::Set    => *v = !o.default,
+                        _ => {}
+                    }
+                }
+            }
+
+            OptType::Triple => {
+                if let Some(v) = o.ovar {
+                    match how_toggle {
+                        ToggleHow::Toggle => *v = flip_triple(*v, lower),
+                        ToggleHow::Unset  => *v = o.default,
+                        ToggleHow::Set    => *v = flip_triple(o.default, lower),
+                        _ => {}
+                    }
+                }
+            }
+
+            OptType::String => {
+                match how_toggle {
+                    ToggleHow::Set | ToggleHow::Unset => {
                         error(
-                            b"The %s option should not be followed by =\0" as *const u8
-                                as *const std::ffi::c_char,
-                            &mut parg,
+                            b"Cannot use \"-+\" or \"-!\" for a string option\0"
+                            as *const u8 as *const std::ffi::c_char,
+                            0 as *mut std::ffi::c_void as *mut PARG
                         );
                         return;
                     }
-                    s = s.offset(1);
-                } else {
-                    o = 0 as *mut loption;
+                    _ => {}
                 }
             }
-        }
-        if o.is_null() {
-            parg.p_string = printopt;
-            if ambig as u64 != 0 {
-                error(
-                    b"%s is an ambiguous abbreviation (\"less --help\" for help)\0" as *const u8
-                        as *const std::ffi::c_char,
-                    &mut parg,
-                );
-            } else {
-                error(
-                    b"There is no %s option (\"less --help\" for help)\0" as *const u8
-                        as *const std::ffi::c_char,
-                    &mut parg,
-                );
-            }
-            return;
-        }
-        str = 0 as *mut std::ffi::c_char;
-        match (*o).otype
-            & (0o1 as std::ffi::c_int
-                | 0o2 as std::ffi::c_int
-                | 0o4 as std::ffi::c_int
-                | 0o10 as std::ffi::c_int
-                | 0o20 as std::ffi::c_int)
-        {
-            1 => {
-                if !((*o).otype & 0o2000 as std::ffi::c_int != 0) {
-                    if !((*o).ovar).is_null() {
-                        if set_default as u64 != 0 {
-                            *(*o).ovar = (*o).odefault;
-                        } else {
-                            *(*o).ovar = ((*o).odefault == 0) as std::ffi::c_int;
-                        }
-                    }
-                }
-            }
-            2 => {
-                if !((*o).otype & 0o2000 as std::ffi::c_int != 0) {
-                    if !((*o).ovar).is_null() {
-                        if set_default as u64 != 0 {
-                            *(*o).ovar = (*o).odefault;
-                        } else if is_env as std::ffi::c_uint != 0
-                            && (*o).ovar == &mut ctldisp as *mut std::ffi::c_int
-                        {
-                            *(*o).ovar = 2 as std::ffi::c_int;
-                        } else {
-                            *(*o).ovar = flip_triple((*o).odefault, lc);
-                        }
-                    }
-                }
-            }
-            8 => {
-                if *s as std::ffi::c_int == '\0' as i32 {
-                    pendopt = o;
-                    return;
-                }
-                while *s as std::ffi::c_int == ' ' as i32 {
-                    s = s.offset(1);
-                }
-                s = optstring(
-                    s,
-                    &mut str,
-                    printopt,
-                    (*o).odesc[1 as std::ffi::c_int as usize],
-                );
-                if s.is_null() {
-                    return;
-                }
-            }
-            4 => {
-                if *s as std::ffi::c_int == '\0' as i32 {
-                    pendopt = o;
-                    return;
-                }
-                if !((*o).otype & 0o2000 as std::ffi::c_int != 0) {
-                    *(*o).ovar = getnumc(&mut s, printopt, 0 as *mut lbool);
-                }
-            }
-            _ => {}
-        }
-        if ((*o).ofunc).is_some() && (*o).otype & 0o2000 as std::ffi::c_int == 0 {
-            (Some(((*o).ofunc).expect("non-null function pointer")))
-                .expect("non-null function pointer")(0 as std::ffi::c_int, str);
-        }
-        if !str.is_null() {
-            free(str as *mut std::ffi::c_void);
-        }
-    }
-}
-#[no_mangle]
-pub unsafe extern "C" fn toggle_option(
-    mut o: *mut loption,
-    mut lower: lbool,
-    mut s: *const std::ffi::c_char,
-    mut how_toggle: std::ffi::c_int,
-) {
-    let mut num: std::ffi::c_int = 0;
-    let mut no_prompt: std::ffi::c_int = 0;
-    let mut err: lbool = LFALSE;
-    let mut parg: PARG = parg {
-        p_string: 0 as *const std::ffi::c_char,
-    };
-    no_prompt = how_toggle & 0o100 as std::ffi::c_int;
-    how_toggle &= !(0o100 as std::ffi::c_int);
-    if o.is_null() {
-        error(
-            b"No such option\0" as *const u8 as *const std::ffi::c_char,
-            0 as *mut std::ffi::c_void as *mut PARG,
-        );
-        return;
-    }
-    if how_toggle == 1 as std::ffi::c_int && (*o).otype & 0o100 as std::ffi::c_int != 0 {
-        parg.p_string = opt_desc(o);
-        error(
-            b"Cannot change the %s option\0" as *const u8 as *const std::ffi::c_char,
-            &mut parg,
-        );
-        return;
-    }
-    if how_toggle == 0 as std::ffi::c_int && (*o).otype & 0o400 as std::ffi::c_int != 0 {
-        parg.p_string = opt_desc(o);
-        error(
-            b"Cannot query the %s option\0" as *const u8 as *const std::ffi::c_char,
-            &mut parg,
-        );
-        return;
-    }
-    match (*o).otype
-        & (0o1 as std::ffi::c_int
-            | 0o2 as std::ffi::c_int
-            | 0o4 as std::ffi::c_int
-            | 0o10 as std::ffi::c_int
-            | 0o20 as std::ffi::c_int)
-    {
-        8 | 4 => {
-            if how_toggle == 1 as std::ffi::c_int && *s as std::ffi::c_int == '\0' as i32 {
-                how_toggle = 0 as std::ffi::c_int;
-            }
-        }
-        _ => {}
-    }
-    if how_toggle != 0 as std::ffi::c_int && (*o).otype & 0o200 as std::ffi::c_int != 0 {
-        repaint_hilite(LFALSE);
-    }
-    if how_toggle != 0 as std::ffi::c_int {
-        match (*o).otype
-            & (0o1 as std::ffi::c_int
-                | 0o2 as std::ffi::c_int
-                | 0o4 as std::ffi::c_int
-                | 0o10 as std::ffi::c_int
-                | 0o20 as std::ffi::c_int)
-        {
-            1 => {
-                if !((*o).ovar).is_null() {
+
+            OptType::Number => {
+                if let Some(v) = o.ovar {
                     match how_toggle {
-                        1 => {
-                            *(*o).ovar = (*(*o).ovar == 0) as std::ffi::c_int;
+                        ToggleHow::Toggle => {
+                            let mut err = false;
+                            if let Some(num) = getnumc(&mut s, None, Some(&mut err)) {
+                                *v = num as i32;
+                            }
                         }
-                        2 => {
-                            *(*o).ovar = (*o).odefault;
-                        }
-                        3 => {
-                            *(*o).ovar = ((*o).odefault == 0) as std::ffi::c_int;
+                        ToggleHow::Unset => *v = o.default,
+                        ToggleHow::Set => {
+                            error(b"Can't use \"-!\" for a numeric option\0"
+                                as *const u8 as *const std::ffi::c_char,
+                                0 as *mut std::ffi::c_void as *mut PARG);
+                            return;
                         }
                         _ => {}
                     }
                 }
             }
-            2 => {
-                if !((*o).ovar).is_null() {
-                    match how_toggle {
-                        1 => {
-                            *(*o).ovar = flip_triple(*(*o).ovar, lower);
-                        }
-                        2 => {
-                            *(*o).ovar = (*o).odefault;
-                        }
-                        3 => {
-                            *(*o).ovar = flip_triple((*o).odefault, lower);
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            8 => match how_toggle {
-                3 | 2 => {
-                    error(
-                        b"Cannot use \"-+\" or \"-!\" for a string option\0" as *const u8
-                            as *const std::ffi::c_char,
-                        0 as *mut std::ffi::c_void as *mut PARG,
-                    );
-                    return;
-                }
-                _ => {}
-            },
-            4 => match how_toggle {
-                1 => {
-                    num = getnumc(&mut s, 0 as *const std::ffi::c_char, &mut err);
-                    if err as u64 == 0 {
-                        *(*o).ovar = num;
-                    }
-                }
-                2 => {
-                    *(*o).ovar = (*o).odefault;
-                }
-                3 => {
-                    error(
-                        b"Can't use \"-!\" for a numeric option\0" as *const u8
-                            as *const std::ffi::c_char,
-                        0 as *mut std::ffi::c_void as *mut PARG,
-                    );
-                    return;
-                }
-                _ => {}
-            },
-            _ => {}
         }
     }
-    if ((*o).ofunc).is_some() {
-        (Some(((*o).ofunc).expect("non-null function pointer")))
-            .expect("non-null function pointer")(
-            if how_toggle == 0 as std::ffi::c_int {
-                1 as std::ffi::c_int
-            } else {
-                2 as std::ffi::c_int
-            },
-            s,
-        );
+
+    /*
+     * Call option handler
+     */
+    if let Some(handler) = o.handler {
+        let action = if how_toggle == ToggleHow::NoToggle {
+            OptAction::Query
+        } else {
+            OptAction::Toggle
+        };
+        handler(action, s);
     }
-    if how_toggle != 0 as std::ffi::c_int && (*o).otype & 0o200 as std::ffi::c_int != 0 {
-        chg_hilite();
-    }
-    if no_prompt == 0 {
-        match (*o).otype
-            & (0o1 as std::ffi::c_int
-                | 0o2 as std::ffi::c_int
-                | 0o4 as std::ffi::c_int
-                | 0o10 as std::ffi::c_int
-                | 0o20 as std::ffi::c_int)
-        {
-            1 | 2 => {
-                if !((*o).ovar).is_null() {
-                    error(
-                        (*o).odesc[*(*o).ovar as usize],
-                        0 as *mut std::ffi::c_void as *mut PARG,
-                    );
+
+    /*
+     * Print result
+     */
+    if !no_prompt {
+        match o.kind {
+            OptType::Bool | OptType::Triple => {
+                if let Some(v) = o.ovar {
+                    let s = CString::new(o.odesc[*v as usize]).unwrap().as_ptr() as *const u8 as *const std::ffi::c_char;
+                    error(s, 0 as *mut std::ffi::c_void as *mut PARG);
                 }
             }
-            4 => {
-                parg.p_int = *(*o).ovar;
-                error((*o).odesc[1 as std::ffi::c_int as usize], &mut parg);
+
+            OptType::Number => {
+                if let Some(v) = o.ovar {
+                    let s = CString::new(o.odesc[1]).unwrap().as_ptr() as *const u8 as *const std::ffi::c_char;
+                    error(s, 0 as *mut std::ffi::c_void as *mut PARG);
+                }
             }
-            8 | _ => {}
+
+            OptType::String => {
+                /* already printed */
+            }
         }
     }
-    if how_toggle != 0 as std::ffi::c_int && (*o).otype & 0o40 as std::ffi::c_int != 0 {
+
+    if how_toggle != ToggleHow::NoToggle && o.flags.contains(OptFlags::REPAINT) {
         screen_trashed();
     }
 }
-unsafe extern "C" fn flip_triple(mut val: std::ffi::c_int, mut lc: lbool) -> std::ffi::c_int {
-    if lc as u64 != 0 {
-        return if val == 1 as std::ffi::c_int {
-            0 as std::ffi::c_int
+
+/// "Toggle" a triple-valued option.
+unsafe extern "C" fn flip_triple(val: i32, mut lc: bool) -> i32 {
+    if lc {
+        return if val == OPT_ON {
+            OPT_OFF
         } else {
-            1 as std::ffi::c_int
+            OPT_ON
         };
     } else {
-        return if val == 2 as std::ffi::c_int {
-            0 as std::ffi::c_int
+        return if val == OPT_ONPLUS {
+            OPT_OFF
         } else {
-            2 as std::ffi::c_int
+            OPT_ONPLUS
         };
     };
 }
+
+///  Determine if an option takes a parameter.
 #[no_mangle]
-pub unsafe extern "C" fn opt_has_param(mut o: *mut loption) -> std::ffi::c_int {
-    if o.is_null() {
-        return 0 as std::ffi::c_int;
-    }
-    if (*o).otype
-        & (0o1 as std::ffi::c_int
-            | 0o2 as std::ffi::c_int
-            | 0o20 as std::ffi::c_int
-            | 0o100 as std::ffi::c_int)
-        != 0
-    {
-        return 0 as std::ffi::c_int;
-    }
-    return 1 as std::ffi::c_int;
-}
-#[no_mangle]
-pub unsafe extern "C" fn opt_prompt(mut o: *mut loption) -> *const std::ffi::c_char {
-    if o.is_null()
-        || (*o).otype & (0o10 as std::ffi::c_int | 0o4 as std::ffi::c_int) == 0 as std::ffi::c_int
-    {
-        return b"?\0" as *const u8 as *const std::ffi::c_char;
-    }
-    return (*o).odesc[0 as std::ffi::c_int as usize];
-}
-#[no_mangle]
-pub unsafe extern "C" fn opt_toggle_disallowed(mut c: std::ffi::c_int) -> *const std::ffi::c_char {
-    match c {
-        111 => {
-            if ch_getflags() & 0o1 as std::ffi::c_int != 0 {
-                return b"Input is not a pipe\0" as *const u8 as *const std::ffi::c_char;
-            }
+pub unsafe extern "C" fn opt_has_param(o: Option<&loption>) -> bool {
+    if let Some(opt) = o {
+        if o.otype & (O_BOOL | O_TRIPLE | O_NOVAR | O_NO_TOGGLE) != 0 {
+            return false;
         }
-        _ => {}
+    } else {
+        return false;
     }
-    return 0 as *const std::ffi::c_char;
+    return true;
 }
+
+/// Return the prompt to be used for a given option letter.
+/// Only string and number valued options have prompts.
 #[no_mangle]
-pub unsafe extern "C" fn isoptpending() -> lbool {
-    return (pendopt != 0 as *mut std::ffi::c_void as *mut loption) as std::ffi::c_int as lbool;
+pub unsafe extern "C" fn opt_prompt(o: Option<&loption>) -> Option<String> {
+    if let Some(opt) = o {
+        if opt.otype & (O_STRING | O_NUMBER) == 0 {
+            return Some(String::from("?"));
+        }
+    } else {
+        return Some(String::from("?"));
+    }
+    None
 }
-unsafe extern "C" fn nostring(mut printopt: *const std::ffi::c_char) {
+
+/// If the specified option can be toggled, return NULL.
+/// Otherwise return an appropriate error message.
+#[no_mangle]
+pub unsafe extern "C" fn opt_toggle_disallowed(c: char) -> Option<&'static str> {
+    if c == 'o' {
+        if ch_getflags() & CH_CANSEEK != 0 {
+            return Some("Input is not a pipe");
+        }
+    }
+    None
+}
+
+///  Return whether or not there is a string option pending;
+///  that is, if the previous option was a string-valued option letter
+///  (like -P) without a following string.
+///  In that case, the current option is taken to be the string for
+///  the previous option.
+#[no_mangle]
+pub unsafe extern "C" fn isoptpending() -> bool {
+    pendopt.is_some()
+}
+
+// Print error message about missing string.
+unsafe extern "C" fn nostring(printopt: &str) {
     let mut parg: PARG = parg {
-        p_string: 0 as *const std::ffi::c_char,
+        p_string: None,
     };
-    parg.p_string = printopt;
+    parg.p_string = Some(printopt.to_string());
     error(
         b"Value is required after %s\0" as *const u8 as *const std::ffi::c_char,
         &mut parg,
     );
 }
+
+// Printe error message if a STRING type option is not followed by a string
 #[no_mangle]
 pub unsafe extern "C" fn nopendopt() {
     nostring(opt_desc(pendopt));
 }
-unsafe extern "C" fn optstring(
-    mut s: *const std::ffi::c_char,
-    mut p_str: *mut *mut std::ffi::c_char,
-    mut printopt: *const std::ffi::c_char,
-    mut validchars: *const std::ffi::c_char,
-) -> *const std::ffi::c_char {
-    let mut p: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
-    let mut out: *mut std::ffi::c_char = 0 as *mut std::ffi::c_char;
-    if *s as std::ffi::c_int == '\0' as i32 {
+
+/// Scan to end of string or to an END_OPTION_STRING character.
+/// In the latter case, stop before the character.
+/// Returns the remainder of the string (starting at the stop position),
+/// or None on error.
+///
+/// `validchars` grammar:
+///   "-" optional leading '-'
+///   "." optional leading '.'
+///   "d" one or more digits
+///   "," comma-separated digit strings allowed
+///   "s" space terminates the argument
+unsafe fn optstring(
+    s: &str,
+    printopt: &str,
+    validchars: Option<&str>,
+) -> Option<(String, &str)> {
+    if s.is_empty() {
         nostring(printopt);
-        return 0 as *const std::ffi::c_char;
+        return None;
     }
-    *p_str = ecalloc(
-        (strlen(s)).wrapping_add(1 as std::ffi::c_int as std::ffi::c_ulong),
-        ::core::mem::size_of::<std::ffi::c_char>() as std::ffi::c_ulong,
-    ) as *mut std::ffi::c_char;
-    out = *p_str;
-    p = s;
-    while *p as std::ffi::c_int != '\0' as i32 {
-        if opt_use_backslash != 0
-            && *p as std::ffi::c_int == '\\' as i32
-            && *p.offset(1 as std::ffi::c_int as isize) as std::ffi::c_int != '\0' as i32
-        {
-            p = p.offset(1);
-        } else {
-            if !validchars.is_null() {
-                if *validchars.offset(0 as std::ffi::c_int as isize) as std::ffi::c_int
-                    == 's' as i32
-                {
-                    if *p as std::ffi::c_int == ' ' as i32 {
-                        break;
-                    }
-                } else if *p as std::ffi::c_int == '-' as i32 {
-                    if *validchars.offset(0 as std::ffi::c_int as isize) as std::ffi::c_int
-                        != '-' as i32
-                    {
-                        break;
-                    }
-                    validchars = validchars.offset(1);
-                } else if *p as std::ffi::c_int == '.' as i32 {
-                    if *validchars.offset(0 as std::ffi::c_int as isize) as std::ffi::c_int
-                        == '-' as i32
-                    {
-                        validchars = validchars.offset(1);
-                    }
-                    if *validchars.offset(0 as std::ffi::c_int as isize) as std::ffi::c_int
-                        != '.' as i32
-                    {
-                        break;
-                    }
-                    validchars = validchars.offset(1);
-                } else if *p as std::ffi::c_int == ',' as i32 {
-                    if *validchars.offset(0 as std::ffi::c_int as isize) as std::ffi::c_int
-                        == '\0' as i32
-                        || *validchars.offset(1 as std::ffi::c_int as isize) as std::ffi::c_int
-                            != ',' as i32
-                    {
-                        break;
-                    }
-                } else {
-                    if !(*p as std::ffi::c_int >= '0' as i32 && *p as std::ffi::c_int <= '9' as i32)
-                    {
-                        break;
-                    }
-                    while *validchars.offset(0 as std::ffi::c_int as isize) as std::ffi::c_int
-                        == '-' as i32
-                        || *validchars.offset(0 as std::ffi::c_int as isize) as std::ffi::c_int
-                            == '.' as i32
-                    {
-                        validchars = validchars.offset(1);
-                    }
-                    if *validchars.offset(0 as std::ffi::c_int as isize) as std::ffi::c_int
-                        != 'd' as i32
-                    {
-                        break;
-                    }
-                }
+
+    let mut out = String::with_capacity(s.len());
+    let mut valid = validchars.unwrap_or("");
+    let mut chars = s.char_indices().peekable();
+
+    let mut end_index = s.len();
+
+    while let Some((i, ch)) = chars.next() {
+        /* Handle backslash escaping */
+        let ch = if opt_use_backslash != 0 && ch == '\\' {
+            if let Some((_, next)) = chars.next() {
+                next
+            } else {
+                break;
             }
-            if *p as std::ffi::c_int == '$' as i32 {
+        } else {
+            ch
+        };
+
+        /* Validate character */
+        if !valid.is_empty() {
+            if valid.starts_with('s') {
+                if ch == ' ' {
+                    end_index = i;
+                    break;
+                }
+            } else if ch == '-' {
+                if !valid.starts_with('-') {
+                    end_index = i;
+                    break;
+                }
+                valid = &valid[1..];
+            } else if ch == '.' {
+                if valid.starts_with('-') {
+                    valid = &valid[1..];
+                }
+                if !valid.starts_with('.') {
+                    end_index = i;
+                    break;
+                }
+                valid = &valid[1..];
+            } else if ch == ',' {
+                if valid.len() < 2 || !valid.ends_with(',') {
+                    end_index = i;
+                    break;
+                }
+            } else if ch.is_ascii_digit() {
+                while valid.starts_with('-') || valid.starts_with('.') {
+                    valid = &valid[1..];
+                }
+                if !valid.starts_with('d') {
+                    end_index = i;
+                    break;
+                }
+            } else {
+                end_index = i;
                 break;
             }
         }
-        let fresh1 = out;
-        out = out.offset(1);
-        *fresh1 = *p;
-        p = p.offset(1);
-    }
-    *out = '\0' as i32 as std::ffi::c_char;
-    return p;
-}
-unsafe extern "C" fn num_error(
-    mut printopt: *const std::ffi::c_char,
-    mut errp: *mut lbool,
-    mut overflow: lbool,
-) -> std::ffi::c_int {
-    let mut parg: PARG = parg {
-        p_string: 0 as *const std::ffi::c_char,
-    };
-    if !errp.is_null() {
-        *errp = LTRUE;
-        return -(1 as std::ffi::c_int);
-    }
-    if !printopt.is_null() {
-        parg.p_string = printopt;
-        error(
-            if overflow as std::ffi::c_uint != 0 {
-                b"Number too large in '%s'\0" as *const u8 as *const std::ffi::c_char
-            } else {
-                b"Number is required after %s\0" as *const u8 as *const std::ffi::c_char
-            },
-            &mut parg,
-        );
-    }
-    return -(1 as std::ffi::c_int);
-}
-#[no_mangle]
-pub unsafe extern "C" fn getnumc(
-    mut sp: *mut *const std::ffi::c_char,
-    mut printopt: *const std::ffi::c_char,
-    mut errp: *mut lbool,
-) -> std::ffi::c_int {
-    let mut s: *const std::ffi::c_char = *sp;
-    let mut n: std::ffi::c_int = 0;
-    let mut neg: lbool = LFALSE;
-    s = skipspc(s);
-    neg = LFALSE;
-    if *s as std::ffi::c_int == '-' as i32 {
-        neg = LTRUE;
-        s = s.offset(1);
-    }
-    if (*s as std::ffi::c_int) < '0' as i32 || *s as std::ffi::c_int > '9' as i32 {
-        return num_error(printopt, errp, LFALSE);
-    }
-    n = lstrtoic(s, sp, 10 as std::ffi::c_int);
-    if n < 0 as std::ffi::c_int {
-        return num_error(printopt, errp, LTRUE);
-    }
-    if !errp.is_null() {
-        *errp = LFALSE;
-    }
-    if neg as u64 != 0 {
-        n = -n;
-    }
-    return n;
-}
-#[no_mangle]
-pub unsafe extern "C" fn getnum(
-    mut sp: *mut *mut std::ffi::c_char,
-    mut printopt: *const std::ffi::c_char,
-    mut errp: *mut lbool,
-) -> std::ffi::c_int {
-    let mut cs: *const std::ffi::c_char = *sp;
-    let mut r: std::ffi::c_int = getnumc(&mut cs, printopt, errp);
-    *sp = cs as *mut std::ffi::c_char;
-    return r;
-}
-#[no_mangle]
-pub unsafe extern "C" fn getfraction(
-    mut sp: *mut *const std::ffi::c_char,
-    mut printopt: *const std::ffi::c_char,
-    mut errp: *mut lbool,
-) -> std::ffi::c_long {
-    let mut s: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
-    let mut frac: std::ffi::c_long = 0 as std::ffi::c_int as std::ffi::c_long;
-    let mut fraclen: std::ffi::c_int = 0 as std::ffi::c_int;
-    s = skipspc(*sp);
-    if (*s as std::ffi::c_int) < '0' as i32 || *s as std::ffi::c_int > '9' as i32 {
-        return num_error(printopt, errp, LFALSE) as std::ffi::c_long;
-    }
-    while *s as std::ffi::c_int >= '0' as i32 && *s as std::ffi::c_int <= '9' as i32 {
-        if !(6 as std::ffi::c_int <= fraclen) {
-            frac = frac * 10 as std::ffi::c_int as std::ffi::c_long
-                + (*s as std::ffi::c_int - '0' as i32) as std::ffi::c_long;
-            fraclen += 1;
-        }
-        s = s.offset(1);
-    }
-    loop {
-        let fresh2 = fraclen;
-        fraclen = fraclen + 1;
-        if !(fresh2 < 6 as std::ffi::c_int) {
+
+        /* END_OPTION_STRING handling */
+        if ch == END_OPTION_STRING {
+            end_index = i;
             break;
         }
-        frac *= 10 as std::ffi::c_int as std::ffi::c_long;
+
+        out.push(ch);
     }
-    *sp = s;
-    if !errp.is_null() {
-        *errp = LFALSE;
-    }
-    return frac;
+
+    let remainder = &s[end_index..];
+    Some((out, remainder))
 }
+
+unsafe fn num_error(printopt: Option<&str>, errp: Option<&mut bool>, overflow: bool) -> i32 {
+    if let Some(err) = errp {
+        *err = true;
+        return -1;
+    }
+
+    if let Some(opt) = printopt {
+        if overflow {
+            error(b"Number too large in '%s'" as *const u8 as *const std::ffi::c_char,
+                0 as *mut std::ffi::c_void as *mut PARG);
+        } else {
+            error(b"Number number is required after %s" as *const u8 as *const std::ffi::c_char,
+                0 as *mut std::ffi::c_void as *mut PARG);
+        }
+    }
+
+    -1
+}
+
+/// Translate a string into a number.
+/// Like atoi(), but takes a pointer to a char *, and updates
+/// the char * to point after the translated number.
+#[no_mangle]
+fn getnumc(
+    sp: &mut &str,
+    printopt: Option<&str>,
+    errp: Option<&mut bool>,
+) -> Option<i64> {
+    let mut s = sp.trim_start();
+
+    let (num, rest) = str_to_int(s);
+    // TODO check for overflow
+    //if overflow {
+    //    return num_error(printopt, errp, true);
+    //}
+
+    *sp = rest;
+
+    if let Some(err) = errp {
+        *err = false;
+    }
+    num
+}
+
+#[no_mangle]
+fn getnum(
+    sp: &mut &str,
+    printopt: Option<&str>,
+    errp: Option<&mut bool>,
+) -> Option<i64> {
+    getnumc(sp, printopt, errp)
+}
+
+
+/// Translate a string into a fraction, represented by the part of a
+/// number which would follow a decimal point.
+/// The value of the fraction is returned as parts per NUM_FRAC_DENOM.
+/// That is, if "n" is returned, the fraction intended is n/NUM_FRAC_DENOM.
+#[no_mangle]
+unsafe fn getfraction(
+    sp: &mut &str,
+    printopt: Option<&str>,
+    errp: Option<&mut bool>,
+) -> i64 {
+    let mut s = sp.trim_start();
+    let mut frac: i64 = 0;
+    let mut fraclen: usize = 0;
+
+    let first = s.chars().next();
+    if first.map_or(true, |c: char| !c.is_ascii_digit()) {
+        return num_error(printopt, errp, false) as i64;
+    }
+
+    while let Some(c) = s.chars().next() {
+        if !c.is_ascii_digit() {
+            break;
+        }
+
+        if fraclen < NUM_LOG_FRAC_DENOM as usize {
+            frac = frac * 10 + (c as i64 - '0' as i64);
+            fraclen += 1;
+        }
+
+        s = &s[c.len_utf8()..];
+    }
+
+    while fraclen < NUM_LOG_FRAC_DENOM as usize {
+        frac *= 10;
+        fraclen += 1;
+    }
+
+    *sp = s;
+
+    if let Some(err) = errp {
+        *err = false;
+    }
+
+    frac
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn init_unsupport() {
-    let mut s: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
     let mut ss = lgetenv("LESS_UNSUPPORT");
     if ss.is_err() {
         return;
-    } else {
-        s = CString::new(ss.unwrap()).unwrap().as_ptr();
     }
+    let mut s = ss.unwrap().as_str();
+
+    let mut chars = s.chars();
     loop {
-        let mut opt: *mut loption = 0 as *mut loption;
-        s = skipspc(s);
-        if *s as std::ffi::c_int == '\0' as i32 {
+        let mut opt: Option<LOption> = None;
+        s = s.trim_start();
+        if s.is_empty() {
             break;
         }
-        if *s as std::ffi::c_int == '-' as i32 && {
-            s = s.offset(1);
-            *s as std::ffi::c_int == '\0' as i32
-        } {
+        if s == "-" {
             break;
         }
-        if *s as std::ffi::c_int == '-' as i32 {
-            s = s.offset(1);
+        if s starts_with("-") {
+            s = s[1..];
             opt = findopt_name(&mut s, 0 as *mut *const std::ffi::c_char, 0 as *mut lbool);
         } else {
-            opt = findopt(*s as std::ffi::c_int);
+            opt = findopt(s.get(0));
             if !opt.is_null() {
-                s = s.offset(1);
+                s = s[1..];
             }
         }
         if !opt.is_null() {
-            (*opt).otype |= 0o2000 as std::ffi::c_int;
+            opt.otype |= O_UNSUPPORTED;
         }
     }
 }
+
+// Get the value of the -e flag.
 #[no_mangle]
 pub unsafe extern "C" fn get_quit_at_eof() -> std::ffi::c_int {
     if less_is_more == 0 {
         return quit_at_eof;
     }
+    // When less_is_more is set, the -e flag semantics are different.
     return if quit_at_eof != 0 {
-        2 as std::ffi::c_int
+        OPT_ONPLUS
     } else {
-        1 as std::ffi::c_int
+        OPT_ON
     };
 }

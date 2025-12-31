@@ -320,6 +320,11 @@ impl<R: Read + Seek> FileState<R> {
         self.by_block.get(&blk).copied()
     }
 
+    /// Determing if a specific block is currently in one of the buffers
+    fn buffered(&self, block: usize) -> bool {
+        self.find_buffer_index(block as i64).is_some()
+    }
+
     /// Read into the current buffer (`bp`) starting at its current datasize.
     fn read_into_buffer(&mut self, bidx: usize) -> io::Result<usize> {
         // 1) Ungot character takes precedence.
@@ -530,6 +535,71 @@ impl<R: Read + Seek> FileState<R> {
     /// Expose file size (if known).
     pub fn known_size(&self) -> Option<u64> {
         self.fsize
+    }
+
+    /// Seek to a specified position in the file.
+    /// Return 0 if successful, non-zero if can't seek there.
+    pub fn seek(&mut self, pos: u64) -> i32 {
+        let len = self.length().unwrap();
+
+        if self.pos() < 0 || pos > len {
+            return 1;
+        }
+
+        let new_block = pos / LBUFSIZE as u64;
+        if !self.cfg.can_seek && pos != self.fpos && !self.buffered(new_block as usize) {
+            if self.fpos > pos {
+                return 1;
+            }
+            while self.fpos < pos {
+                if self.ch_forw_get() == GetChar::Eoi {
+                    return 1;
+                }
+                // TODO implement!
+                //if ABORT_SIGS() {
+                //    return 1;
+                //}
+            }
+        }
+        // set read pointer
+        self.block = new_block as i64;
+        self.offset = (pos % LBUFSIZE as u64) as usize;
+
+        return 0;
+    }
+
+    /// Seek to the end of the file
+    pub fn seek_end(&mut self) -> i32 {
+        if self.cfg.can_seek {
+            self.fsize = self.known_size();
+        }
+
+        if let Some(len) = self.length() {
+            return self.seek(len);
+        }
+
+        // do it the slow way: read till end of data
+        while let GetChar::Byte(ch) = self.ch_forw_get() {
+            // XXX implement!
+            // if ABORT_SIGS() {
+            //     return 1;
+            // }
+        }
+        return 0;
+    }
+
+    /// Seek to the last position in the file that is currently buffered.
+    fn seek_end_buffer() -> i32 {
+        unimplemented!();
+    }
+
+    /*
+     * Seek to the beginning of the file, or as close to it as we can get.
+     * We may not be able to seek there if input is a pipe and the
+     * beginning of the pipe is no longer buffered.
+     */
+    fn seek_beg() -> i32 {
+        unimplemented!();
     }
 }
 

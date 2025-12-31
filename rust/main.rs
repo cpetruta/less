@@ -404,7 +404,7 @@ unsafe fn main_0() -> i32 {
     ) == 0 as std::ffi::c_int
         && lgetenv("LESS_IS_MORE").is_err()
     {
-        less_is_more = 1 as std::ffi::c_int;
+        less_is_more = 1;
     }
     init_prompt();
     init_unsupport();

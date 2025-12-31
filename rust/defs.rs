@@ -60,6 +60,8 @@ pub const FAKE_EMPTYFILE: &'static str = "@/\\less/\\empty/\\file/\\@";
 pub const SEEK_SET: i32 = 0;
 pub const SEEK_END: i32 = 2;
 
+pub const NUM_LOG_FRAC_DENOM: i32 = 6;
+
 pub unsafe fn abort_sigs() -> bool {
     (sigs & (S_INTERRUPT | S_SWINTERRUPT | S_STOP)) != 0
 }
