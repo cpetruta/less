@@ -232,7 +232,7 @@ public void opt_j(int type, constant char *s)
 			s, "j", calc_jump_sline);
 		break;
 	case QUERY:
-		query_fraction(jump_sline, jump_sline_fraction, 
+		query_fraction(jump_sline, jump_sline_fraction,
 			"Position target at screen line %d", "Position target at screen position %s");
 		break;
 	}
@@ -289,7 +289,7 @@ public void opt_k(int type, constant char *s)
 	}
 }
 
-#if HAVE_LESSKEYSRC 
+#if HAVE_LESSKEYSRC
 public void opt_ks(int type, constant char *s)
 {
 	PARG parg;
@@ -528,7 +528,7 @@ public void opt__V(int type, constant char *s)
 		putstr(pattern_lib_name());
 		putstr(" regular expressions)\n");
 		{
-			char constant *copyright = 
+			char constant *copyright =
 				"Copyright (C) 1984-2025  Mark Nudelman\n\n";
 			putstr(copyright);
 		}
@@ -924,7 +924,7 @@ public void opt_linenum_width(int type, constant char *s)
 			parg.p_int = MAX_LINENUM_WIDTH;
 			error("Line number width must not be larger than %d", &parg);
 			linenum_width = MIN_LINENUM_WIDTH;
-		} 
+		}
 		break;
 	case QUERY:
 		break;
@@ -1047,7 +1047,7 @@ static lbool parse_header(constant char *s, int *lines, int *cols, POSITION *sta
 
 	n = next_cnum(&s, "header", "line number", &err);
 	if (err) return FALSE;
-	if (n > 0) 
+	if (n > 0)
 	{
 		LINENUM lnum = (LINENUM) n;
 		if (lnum < 1) lnum = 1;
@@ -1135,12 +1135,12 @@ public void opt_search_type(int type, constant char *s)
 		break;
 	case QUERY:
 		bp = buf;
-		if (def_search_type & SRCH_PAST_EOF)   *bp++ = 'E'; 
-		if (def_search_type & SRCH_FIRST_FILE) *bp++ = 'F'; 
-		if (def_search_type & SRCH_NO_MOVE)    *bp++ = 'K'; 
-		if (def_search_type & SRCH_NO_MATCH)   *bp++ = 'N'; 
-		if (def_search_type & SRCH_NO_REGEX)   *bp++ = 'R'; 
-		if (def_search_type & SRCH_WRAP)       *bp++ = 'W'; 
+		if (def_search_type & SRCH_PAST_EOF)   *bp++ = 'E';
+		if (def_search_type & SRCH_FIRST_FILE) *bp++ = 'F';
+		if (def_search_type & SRCH_NO_MOVE)    *bp++ = 'K';
+		if (def_search_type & SRCH_NO_MATCH)   *bp++ = 'N';
+		if (def_search_type & SRCH_NO_REGEX)   *bp++ = 'R';
+		if (def_search_type & SRCH_WRAP)       *bp++ = 'W';
 		for (i = 1;  i <= NUM_SEARCH_COLORS;  i++)
 			if (def_search_type & SRCH_SUBSEARCH(i))
 				*bp++ = (char) ('0'+i);

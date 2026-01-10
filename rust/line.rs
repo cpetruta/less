@@ -12,6 +12,7 @@ use crate::charset::step_charc;
 use crate::decode::isnullenv;
 use crate::decode::lgetenv;
 use crate::defs::*;
+use crate::opttbl::Options;
 use crate::xbuf::XBuffer;
 use std::ffi::CString;
 use std::sync::LazyLock;
@@ -45,7 +46,6 @@ extern "C" {
     static mut sigs: std::ffi::c_int;
     static mut bs_mode: std::ffi::c_int;
     static mut proc_backspace: std::ffi::c_int;
-    static mut proc_tab: std::ffi::c_int;
     static mut proc_return: std::ffi::c_int;
     static mut linenums: std::ffi::c_int;
     static mut ctldisp: i32;
@@ -301,7 +301,7 @@ const AT_COLOR_SEARCH: i32 = 10 << AT_COLOR_SHIFT;
 const fn at_color_subsearch(i: i32) -> i32 {
     (10 + i) << AT_COLOR_SHIFT
 }
-const NUM_SEARCH_COLORS: i32 = AT_NUM_COLORS - 10 - 1;
+pub const NUM_SEARCH_COLORS: i32 = AT_NUM_COLORS - 10 - 1;
 const MAX_UTF_CHAR_LEN: usize = 6;
 
 static mut color_map: LazyLock<[color_map; 19]> = LazyLock::new(|| {
@@ -1291,7 +1291,7 @@ fn is_utf8_lead(c: u8) -> bool {
  * Expand tabs into spaces, handle underlining, boldfacing, etc.
  * Returns 0 if ok, 1 if couldn't fit in buffer.
  */
-pub unsafe extern "C" fn pappend_b(c: u8, pos: POSITION, before_pendc: bool) -> i64 {
+pub unsafe extern "C" fn pappend_b(o: &Options, c: u8, pos: POSITION, before_pendc: bool) -> i64 {
     let mut ch: char = (c & 0o377) as char;
     let mut r = 0;
 
@@ -1299,7 +1299,7 @@ pub unsafe extern "C" fn pappend_b(c: u8, pos: POSITION, before_pendc: bool) -> 
         if ch == '\r' && pendc == '\r' {
             return 0;
         }
-        if do_append(pendc, None, pendpos) != 0 {
+        if do_append(o, pendc, None, pendpos) != 0 {
             /*
              * Oops.  We've probably lost the char which
              * was in pendc, since caller won't back up.
@@ -1329,7 +1329,7 @@ pub unsafe extern "C" fn pappend_b(c: u8, pos: POSITION, before_pendc: bool) -> 
         return 0;
     }
     if !utf_mode {
-        r = do_append(ch, None, pos);
+        r = do_append(o, ch, None, pos);
     } else {
         /* Perform strict validation in all possible cases. */
         let mut current_block_41: u64;
@@ -1343,7 +1343,7 @@ pub unsafe extern "C" fn pappend_b(c: u8, pos: POSITION, before_pendc: bool) -> 
                 return 0;
             }
             if is_utf8_well_formed(&mbc_buf, mbc_buf_index as usize) {
-                r = do_append(get_wchar(&mbc_buf), Some(&mbc_buf), mbc_pos);
+                r = do_append(o, get_wchar(&mbc_buf), Some(&mbc_buf), mbc_pos);
             } else {
                 /* Complete, but not shortest form, sequence. */
                 r = flush_mbc_buf(mbc_pos);
@@ -1371,7 +1371,7 @@ pub unsafe extern "C" fn pappend_b(c: u8, pos: POSITION, before_pendc: bool) -> 
                 mbc_buf_index = 1;
                 *mbc_buf.as_mut_ptr() = c;
                 if is_ascii_octet(c) {
-                    r = do_append(ch, None, pos);
+                    r = do_append(o, ch, None, pos);
                 } else if is_utf8_lead(c) {
                     mbc_buf_len = utf_len(c as i8);
                     mbc_pos = pos;
@@ -1391,11 +1391,11 @@ pub unsafe extern "C" fn pappend_b(c: u8, pos: POSITION, before_pendc: bool) -> 
     r as i64
 }
 
-pub unsafe extern "C" fn pappend(c: u8, pos: POSITION) -> i64 {
+pub unsafe extern "C" fn pappend(o: &Options, c: u8, pos: POSITION) -> i64 {
     if ff_starts_line < 0 {
         ff_starts_line = if c == b'L' & 0o37 { 1 } else { 0 };
     }
-    return pappend_b(c, pos, false);
+    return pappend_b(o, c, pos, false);
 }
 
 pub unsafe extern "C" fn line_is_ff() -> bool {
@@ -1501,7 +1501,7 @@ unsafe extern "C" fn store_bs(ch: char, rep: Option<&[u8]>, pos: POSITION) -> i3
     0
 }
 
-unsafe extern "C" fn do_append(ch: char, rep: Option<&[u8]>, pos: POSITION) -> i32 {
+unsafe extern "C" fn do_append(o: &Options, ch: char, rep: Option<&[u8]>, pos: POSITION) -> i32 {
     let mut a = AT_NORMAL;
     let mut in_overstrike = overstrike;
     let mut rep = rep;
@@ -1577,7 +1577,7 @@ unsafe extern "C" fn do_append(ch: char, rep: Option<&[u8]>, pos: POSITION) -> i
          * Expand a tab into spaces.
          */
 
-        if proc_tab == OPT_ONPLUS || (bs_mode == BS_CONTROL && proc_tab == OPT_OFF) {
+        if o.proc_tab == OPT_ONPLUS || (bs_mode == BS_CONTROL && o.proc_tab == OPT_OFF) {
             return store_control_char(ch, rep, pos);
         }
         if store_tab(a, pos) != 0 {
@@ -1637,7 +1637,7 @@ unsafe extern "C" fn add_attr_normal() {
 /*
  * Terminate the line in the line buffer.
  */
-pub unsafe extern "C" fn pdone(endline: bool, chopped: bool, forw: bool) {
+pub unsafe extern "C" fn pdone(o: &Options, endline: bool, chopped: bool, forw: bool) {
     pflushmbc();
     linebuf.prev_end = if !endline && !chopped { linebuf.end } else { 0 };
     if pendc != '\0' && (pendc != '\r' || !endline) {
@@ -1646,7 +1646,7 @@ pub unsafe extern "C" fn pdone(endline: bool, chopped: bool, forw: bool) {
          * But discard a pending CR if we are at end of line
          * (that is, discard the CR in a CR/LF sequence).
          */
-        do_append(pendc, None, pendpos);
+        do_append(o, pendc, None, pendpos);
     }
     if chopped && rscroll_char != '\0' {
         let mut rscroll_utf8: [u8; MAX_UTF_CHAR_LEN + 1] = [0; MAX_UTF_CHAR_LEN + 1];
@@ -1749,6 +1749,7 @@ pub unsafe extern "C" fn pdone(endline: bool, chopped: bool, forw: bool) {
  * Duplicating this complicated logic is not a good design.
  */
 unsafe extern "C" fn col_vs_pos(
+    o: Options,
     linepos: POSITION,
     cp: &mut ColPos,
     saved_pos: POSITION,
@@ -1802,7 +1803,7 @@ unsafe extern "C" fn col_vs_pos(
                 };
             }
         } else if ch == '\t' {
-            if proc_tab == OPT_ONPLUS || (bs_mode == BS_CONTROL && proc_tab == OPT_OFF) {
+            if o.proc_tab == OPT_ONPLUS || (bs_mode == BS_CONTROL && o.proc_tab == OPT_OFF) {
                 cw = prchar(ch).len() as i64;
             } else {
                 cw = tab_spaces(col) as i64;
@@ -1843,6 +1844,7 @@ unsafe extern "C" fn col_vs_pos(
 }
 
 pub unsafe extern "C" fn col_from_pos(
+    o: Options,
     linepos: POSITION,
     spos: POSITION,
     saved_pos: POSITION,
@@ -1851,11 +1853,12 @@ pub unsafe extern "C" fn col_from_pos(
     let mut cp = ColPos { col: 0, pos: 0 };
     cp.pos = spos;
     cp.col = NULL_POSITION as i32;
-    col_vs_pos(linepos, &mut cp, saved_pos, saved_col);
+    col_vs_pos(o, linepos, &mut cp, saved_pos, saved_col);
     return cp.col;
 }
 
 pub unsafe extern "C" fn pos_from_col(
+    o: Options,
     linepos: POSITION,
     col: std::ffi::c_int,
     saved_pos: POSITION,
@@ -1864,7 +1867,7 @@ pub unsafe extern "C" fn pos_from_col(
     let mut cp = ColPos { col: 0, pos: 0 };
     cp.col = col + hshift - line_pfx_width();
     cp.pos = NULL_POSITION;
-    col_vs_pos(linepos, &mut cp, saved_pos, saved_col);
+    col_vs_pos(o, linepos, &mut cp, saved_pos, saved_col);
     return cp.pos;
 }
 
@@ -2072,9 +2075,9 @@ pub unsafe extern "C" fn skip_columns(
 /*
  * Append a string to the line buffer.
  */
-unsafe extern "C" fn pappstr(string: &[u8]) -> i32 {
+unsafe extern "C" fn pappstr(o: &Options, string: &[u8]) -> i32 {
     for c in string {
-        if pappend(*c, NULL_POSITION) != 0 {
+        if pappend(o, *c, NULL_POSITION) != 0 {
             /* Doesn't fit on screen. */
             return 1;
         }
@@ -2087,7 +2090,7 @@ unsafe extern "C" fn pappstr(string: &[u8]) -> i32 {
  * If the string is too long to fit on the screen,
  * truncate the beginning of the string to fit.
  */
-pub unsafe extern "C" fn load_line(string: &[u8]) {
+pub unsafe extern "C" fn load_line(o: &Options, string: &[u8]) {
     let mut save_hshift = hshift;
     hshift = 0;
 
@@ -2096,7 +2099,7 @@ pub unsafe extern "C" fn load_line(string: &[u8]) {
 
     loop {
         prewind(false);
-        if pappstr(string) == 0 {
+        if pappstr(o, string) == 0 {
             break;
         }
         /*

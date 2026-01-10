@@ -49,6 +49,6 @@ pub fn str_to_int<'a>(s: &'a str) -> (Option<i64>, &'a str) {
 }
 
 pub fn error(message: &str) {
-    eprintln!(message);
+    eprintln!("{}", message);
     panic!();
 }

@@ -1610,7 +1610,24 @@ pub unsafe extern "C" fn editchar(tables: &Tables, c: u8, flags: i32) -> i32 {
             ungetcc(usercmd[nch as usize] as i8);
         }
     } else if !sidx.is_none() {
-        ungetsc(tables.ecmd_tables[sidx.unwrap().1].table[sidx.unwrap().0..].as_ptr() as *const i8);
+            ungetsc(tables.ecmd_tables[sidx.unwrap().1].table[sidx.unwrap().0..].as_ptr() as *const i8);
     }
     return action;
+}
+
+// Global tables instance for access from modules that don't have it in scope
+// SAFETY: This is only accessed during single-threaded initialization
+// or from within the commands module which is single-threaded
+static mut TABLES: Option<*mut Tables> = None;
+
+pub fn set_tables(tables: *mut Tables) {
+    unsafe {
+        TABLES = Some(tables);
+    }
+}
+
+pub fn get_tables_mut() -> Option<&'static mut Tables> {
+    unsafe {
+        TABLES.map(|p| &mut *p)
+    }
 }

@@ -1,5 +1,6 @@
 use crate::defs::*;
 use crate::line::{pappend, pappend_b, pdone, prewind};
+use crate::opttbl::Options;
 
 extern "C" {
     fn ch_seek(pos: POSITION) -> std::ffi::c_int;
@@ -118,6 +119,7 @@ unsafe extern "C" fn init_status_col(
  */
 #[no_mangle]
 pub unsafe extern "C" fn forw_line_seg(
+    o: &Options,
     curr_pos: POSITION,
     skipeol: bool,
     rscroll: bool,
@@ -199,7 +201,7 @@ pub unsafe extern "C" fn forw_line_seg(
                     null_line();
                     return -(1 as std::ffi::c_int) as POSITION;
                 }
-                backchars = pappend(c as u8, new_pos as i64);
+                backchars = pappend(o, c as u8, new_pos as i64);
                 new_pos += 1;
                 if backchars > 0 {
                     pshift_all();
@@ -259,7 +261,7 @@ pub unsafe extern "C" fn forw_line_seg(
                 /*
                  * Append the char to the line and get the next char.
                  */
-                backchars = pappend(c as u8, (ch_tell() - 1) as i64);
+                backchars = pappend(o, c as u8, (ch_tell() - 1) as i64);
                 if backchars > 0 {
                     /*
                      * The char won't fit in the line; the line
@@ -330,9 +332,9 @@ pub unsafe extern "C" fn forw_line_seg(
             /* Add spurious space to carry possible attn hilite.
              * Use pappend_b so that if line ended with \r\n,
              * we insert the space before the \r. */
-            pappend_b(b' ', (ch_tell() - 1) as POSITION, true);
+            pappend_b(o, b' ', (ch_tell() - 1) as POSITION, true);
         }
-        pdone(endline, rscroll && chopped, true);
+        pdone(o, endline, rscroll && chopped, true);
         if !(is_filtered(base_pos) as u64 != 0) {
             /*
              * We don't want to display this line.
@@ -369,11 +371,13 @@ pub unsafe extern "C" fn forw_line_seg(
 
 #[no_mangle]
 pub unsafe extern "C" fn forw_line(
+    o: &Options,
     curr_pos: POSITION,
     p_linepos: &mut Option<POSITION>,
     p_newline: &mut Option<bool>,
 ) -> POSITION {
     return forw_line_seg(
+        o,
         curr_pos,
         chop_line() != 0 || hshift > 0,
         true,
@@ -392,6 +396,7 @@ pub unsafe extern "C" fn forw_line(
  */
 #[no_mangle]
 pub unsafe extern "C" fn back_line(
+    o: &Options,
     mut curr_pos: POSITION,
     p_newline: &mut Option<bool>,
 ) -> POSITION {
@@ -518,7 +523,7 @@ pub unsafe extern "C" fn back_line(
                         break '_loop;
                     }
                 } else {
-                    backchars = pappend(c as u8, (ch_tell() - 1) as i64) as i32;
+                    backchars = pappend(o, c as u8, (ch_tell() - 1) as i64) as i32;
                     if backchars > 0 {
                         /*
                          * Got a full printable line, but we haven't
@@ -592,7 +597,7 @@ pub unsafe extern "C" fn back_line(
                 }
             }
         }
-        pdone(endline, chopped, false);
+        pdone(o, endline, chopped, false);
         if !(is_filtered(base_pos) as u64 != 0) {
             break;
         }

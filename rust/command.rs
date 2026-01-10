@@ -1,5 +1,6 @@
 use crate::defs::*;
 use crate::line::load_line;
+use crate::opttbl::Options;
 use std::ffi::CStr;
 
 extern "C" {
@@ -880,7 +881,7 @@ unsafe extern "C" fn make_display() {
         ignore_eoi = save_ignore_eoi;
     }
 }
-unsafe extern "C" fn prompt() {
+unsafe extern "C" fn prompt(o: &Options) {
     let mut p: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
     if !ungot.is_null() && (*ungot).ug_end_command as u64 == 0 {
         return;
@@ -942,7 +943,7 @@ unsafe extern "C" fn prompt() {
         putchr(':' as i32);
         at_exit();
     } else {
-        load_line(CStr::from_ptr(p).to_bytes());
+        load_line(o, CStr::from_ptr(p).to_bytes());
         put_line(LFALSE);
     }
     clear_eol();
@@ -1075,6 +1076,11 @@ pub unsafe extern "C" fn ungetcc(mut c: std::ffi::c_char) {
     (*ug).ug_next = ungot;
     ungot = ug;
 }
+
+/*
+ * "Unget" a command character.
+ * If any other chars are already ungotten, put this one after those.
+ */
 unsafe extern "C" fn ungetcc_back1(mut c: std::ffi::c_char, mut end_command: lbool) {
     let mut ug: *mut ungot = ecalloc(
         1 as std::ffi::c_int as size_t,
@@ -1102,6 +1108,11 @@ pub unsafe extern "C" fn ungetcc_back(mut c: std::ffi::c_char) {
 pub unsafe extern "C" fn ungetcc_end_command() {
     ungetcc_back1('\0' as i32 as std::ffi::c_char, LTRUE);
 }
+
+/*
+ * Unget a whole string of command characters.
+ * The next sequence of getcc()'s will return this string.
+ */
 #[no_mangle]
 pub unsafe extern "C" fn ungetsc(mut s: *const std::ffi::c_char) {
     while *s as std::ffi::c_int != '\0' as i32 {
@@ -1248,7 +1259,7 @@ pub unsafe extern "C" fn is_ignoring_input(mut action: std::ffi::c_int) -> lbool
     return (action != 105 as std::ffi::c_int) as std::ffi::c_int as lbool;
 }
 #[no_mangle]
-pub unsafe extern "C" fn commands() {
+pub unsafe extern "C" fn commands(o: &Options) {
     let mut current_block: u64;
     let mut c: std::ffi::c_char = 0;
     let mut action: std::ffi::c_int = 0;
@@ -1280,7 +1291,7 @@ pub unsafe extern "C" fn commands() {
         }
         check_winch();
         cmd_reset();
-        prompt();
+        prompt(o);
         if sigs != 0 {
             continue;
         }

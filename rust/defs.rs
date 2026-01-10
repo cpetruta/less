@@ -86,3 +86,73 @@ pub const BOTTOM: i32 = -1;
 pub const BOTTOM_PLUS_ONE: i32 = -2;
 pub const MIDDLE: i32 = -3;
 pub const BOTTOM_OFFSET: i32 = -4;
+
+/* How should we search? */
+pub const SRCH_FORW: i32 = 1 << 0; /* Search forward from current position */
+pub const SRCH_BACK: i32 = 1 << 1; /* Search backward from current position */
+pub const SRCH_NO_MOVE: i32 = 1 << 2; /* Highlight, but don't move */
+pub const SRCH_INCR: i32 = 1 << 3; /* Incremental search */
+pub const SRCH_FIND_ALL: i32 = 1 << 4; /* Find and highlight all matches */
+pub const SRCH_NO_MATCH: i32 = 1 << 8; /* Search for non-matching lines */
+pub const SRCH_PAST_EOF: i32 = 1 << 9; /* Search past end-of-file, into next file */
+pub const SRCH_FIRST_FILE: i32 = 1 << 10; /* Search starting at the first file */
+pub const SRCH_NO_REGEX: i32 = 1 << 12; /* Don't use regular expressions */
+pub const SRCH_FILTER: i32 = 1 << 13; /* Search is for '&' (filter) command */
+pub const SRCH_AFTER_TARGET: i32 = 1 << 14; /* Start search after the target line */
+pub const SRCH_WRAP: i32 = 1 << 15; /* Wrap-around search (continue at BOF/EOF) */
+
+/*
+ * Argument to a handling function tells what type of activity:
+ */
+pub const INIT: i32 = 0; /* Initialization (from command line) */
+pub const QUERY: i32 = 1; /* Query (from _ or - command) */
+pub const TOGGLE: i32 = 2; /* Change value (from - command) */
+
+pub const MIN_LINENUM_WIDTH: i32 = 7; /* Default min printing width of a line number */
+pub const MAX_LINENUM_WIDTH: i32 = 16; /* Max width of a line number */
+pub const MAX_STATUSCOL_WIDTH: i32 = 4; /* Max width of the status column */
+pub const MAX_UTF_CHAR_LEN: i32 = 6; /* Max bytes in one UTF-8 char */
+pub const MAX_PRCHAR_LEN: i32 = 31; /* Max chars in prchar() result */
+
+/* Special char bit-flags used to tell put_line() to do something special */
+pub const AT_NORMAL: i32 = 0;
+pub const AT_UNDERLINE: i32 = 1 << 0;
+pub const AT_BOLD: i32 = 1 << 1;
+pub const AT_BLINK: i32 = 1 << 2;
+pub const AT_STANDOUT: i32 = 1 << 3;
+pub const AT_ANSI: i32 = 1 << 4; /* Content-supplied "ANSI" escape sequence */
+pub const AT_BINARY: i32 = 1 << 5; /* LESS*BINFMT representation */
+pub const AT_HILITE: i32 = 1 << 6; /* Internal highlights (e.g., for search) */
+
+pub const AT_COLOR_SHIFT: i32 = 8;
+pub const AT_NUM_COLORS: i32 = 16;
+pub const AT_COLOR: i32 = (AT_NUM_COLORS - 1) << AT_COLOR_SHIFT;
+pub const AT_COLOR_ATTN: i32 = 1 << AT_COLOR_SHIFT;
+pub const AT_COLOR_BIN: i32 = 2 << AT_COLOR_SHIFT;
+pub const AT_COLOR_CTRL: i32 = 3 << AT_COLOR_SHIFT;
+pub const AT_COLOR_ERROR: i32 = 4 << AT_COLOR_SHIFT;
+pub const AT_COLOR_LINENUM: i32 = 5 << AT_COLOR_SHIFT;
+pub const AT_COLOR_MARK: i32 = 6 << AT_COLOR_SHIFT;
+pub const AT_COLOR_PROMPT: i32 = 7 << AT_COLOR_SHIFT;
+pub const AT_COLOR_RSCROLL: i32 = 8 << AT_COLOR_SHIFT;
+pub const AT_COLOR_HEADER: i32 = 9 << AT_COLOR_SHIFT;
+pub const AT_COLOR_SEARCH: i32 = 10 << AT_COLOR_SHIFT;
+pub fn AT_COLOR_SUBSEARCH(i: i32) -> i32 {
+    (10 + i) << AT_COLOR_SHIFT
+}
+pub const NUM_SEARCH_COLORS: i32 = AT_NUM_COLORS - 10 - 1;
+
+pub const FOLLOW_DESC: i32 = 0;
+pub const FOLLOW_NAME: i32 = 1;
+
+pub const TABSTOP_MAX: i32 = 128; /* Max number of custom tab stops */
+
+/* How should we prompt? */
+pub const PR_SHORT: usize = 0; /* Prompt with colon */
+pub const PR_MEDIUM: usize = 1; /* Prompt with message */
+pub const PR_LONG: usize = 2; /* Prompt with longer message */
+
+#[inline]
+pub fn CONTROL(c: char) -> char {
+    ((c as u8) & 0o37) as char
+}

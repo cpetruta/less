@@ -1,8 +1,6 @@
 use crate::defs::*;
 use crate::edit::edit_ifile;
 use crate::ifile::{IFileHandle, IFileManager};
-use crate::util::ptr_to_str;
-use crate::utils::str_to_int;
 use ::c2rust_bitfields;
 use std::io::{Read, Write};
 use std::path::Path;
