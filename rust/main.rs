@@ -583,42 +583,24 @@ pub unsafe extern "C" fn skipspc(mut s: *const std::ffi::c_char) -> *const std::
     }
     return s;
 }
+
+/// See how many characters of two strings are identical.
+/// If uppercase is true, the first string must begin with an uppercase
+/// character; the remainder of the first string may be either case.
 #[no_mangle]
-pub unsafe extern "C" fn sprefix(
-    mut ps: *const std::ffi::c_char,
-    mut s: *const std::ffi::c_char,
-    mut uppercase: std::ffi::c_int,
-) -> size_t {
-    let mut c: std::ffi::c_char = 0;
-    let mut sc: std::ffi::c_char = 0;
-    let mut len: size_t = 0 as std::ffi::c_int as size_t;
-    while *s as std::ffi::c_int != '\0' as i32 {
-        c = *ps;
-        if uppercase != 0 {
-            if len == 0 as std::ffi::c_int as size_t
-                && (c as std::ffi::c_int >= 'a' as i32 && c as std::ffi::c_int <= 'z' as i32)
-            {
-                return 0 as std::ffi::c_int as size_t;
-            }
-            if c as std::ffi::c_int >= 'A' as i32 && c as std::ffi::c_int <= 'Z' as i32 {
-                c = (c as std::ffi::c_int - 'A' as i32 + 'a' as i32) as std::ffi::c_char;
-            }
+pub extern "C" fn sprefix(prefix: &str, s: &str, uppercase: bool) -> usize {
+    if let Some(first) = prefix.chars().next() {
+        if uppercase && first.is_ascii_lowercase() {
+            return 0;
         }
-        sc = *s;
-        if len > 0 as std::ffi::c_int as size_t
-            && (sc as std::ffi::c_int >= 'A' as i32 && sc as std::ffi::c_int <= 'Z' as i32)
-        {
-            sc = (sc as std::ffi::c_int - 'A' as i32 + 'a' as i32) as std::ffi::c_char;
-        }
-        if c as std::ffi::c_int != sc as std::ffi::c_int {
-            break;
-        }
-        len = len.wrapping_add(1);
-        s = s.offset(1);
-        ps = ps.offset(1);
     }
-    return len;
+    prefix
+        .chars()
+        .zip(s.chars())
+        .take_while(|x| x.0 == x.1)
+        .count()
 }
+
 #[no_mangle]
 pub unsafe extern "C" fn quit(mut status: std::ffi::c_int) {
     static mut save_status: std::ffi::c_int = 0;
@@ -646,8 +628,8 @@ pub unsafe extern "C" fn quit(mut status: std::ffi::c_int) {
     exit(status);
 }
 #[no_mangle]
-pub unsafe extern "C" fn secure_allow(mut features: std::ffi::c_int) -> std::ffi::c_int {
-    return (secure_allow_features & features == features) as std::ffi::c_int;
+pub unsafe extern "C" fn secure_allow(features: i32) -> bool {
+    secure_allow_features & features == features
 }
 
 #[no_mangle]

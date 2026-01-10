@@ -1,4 +1,6 @@
 use crate::defs::*;
+use crate::option::{getfraction, getnumc};
+
 extern "C" {
     fn sprintf(_: *mut std::ffi::c_char, _: *const std::ffi::c_char, _: ...) -> std::ffi::c_int;
     fn snprintf(
@@ -61,16 +63,6 @@ extern "C" {
     fn find_linenum(pos: POSITION) -> LINENUM;
     fn find_pos(linenum: LINENUM) -> POSITION;
     fn scan_eof();
-    fn getnumc(
-        sp: *mut *const std::ffi::c_char,
-        printopt: *const std::ffi::c_char,
-        errp: *mut lbool,
-    ) -> std::ffi::c_int;
-    fn getfraction(
-        sp: *mut *const std::ffi::c_char,
-        printopt: *const std::ffi::c_char,
-        errp: *mut lbool,
-    ) -> std::ffi::c_long;
     fn umuldiv(val: uintmax, num: uintmax, den: uintmax) -> uintmax;
     fn set_output(fd: std::ffi::c_int);
     fn putstr(s: *const std::ffi::c_char);
@@ -93,7 +85,7 @@ extern "C" {
     static mut dohelp: std::ffi::c_int;
     static mut openquote: std::ffi::c_char;
     static mut closequote: std::ffi::c_char;
-    static mut prproto: [*mut std::ffi::c_char; 0];
+    static mut prproto: [String; 3];
     static mut eqproto: *mut std::ffi::c_char;
     static mut hproto: *mut std::ffi::c_char;
     static mut wproto: *mut std::ffi::c_char;
@@ -146,50 +138,53 @@ pub type PARG = parg;
 #[no_mangle]
 pub static mut tagoption: *mut std::ffi::c_char =
     0 as *const std::ffi::c_char as *mut std::ffi::c_char;
+
+/*
+ * Handler for -o option.
+ */
 #[no_mangle]
-pub unsafe extern "C" fn opt_o(mut type_0: std::ffi::c_int, mut s: *const std::ffi::c_char) {
+pub unsafe extern "C" fn opt_o(ty: i32, s: &str) {
     let mut parg: PARG = parg {
         p_string: 0 as *const std::ffi::c_char,
     };
-    let mut filename: *mut std::ffi::c_char = 0 as *mut std::ffi::c_char;
-    if secure_allow((1 as std::ffi::c_int) << 7 as std::ffi::c_int) == 0 {
+    let mut filename = String::new();
+    if !secure_allow(SF_LOGFILE) {
         error(
             b"log file support is not available\0" as *const u8 as *const std::ffi::c_char,
             0 as *mut std::ffi::c_void as *mut PARG,
         );
         return;
     }
-    match type_0 {
-        0 => {
-            namelogfile = save(s);
+    match ty {
+        INIT => {
+            namelogfile = s.to_owned();
         }
-        2 => {
-            if ch_getflags() & 0o1 as std::ffi::c_int != 0 {
+        TOGGLE => {
+            if ch_getflags() & CH_CANSEEK != 0 {
                 error(
                     b"Input is not a pipe\0" as *const u8 as *const std::ffi::c_char,
                     0 as *mut std::ffi::c_void as *mut PARG,
                 );
                 return;
             }
-            if logfile >= 0 as std::ffi::c_int {
+            if logfile >= 0 {
                 error(
                     b"Log file is already in use\0" as *const u8 as *const std::ffi::c_char,
                     0 as *mut std::ffi::c_void as *mut PARG,
                 );
                 return;
             }
-            s = skipspc(s);
+            s = s.trim_start();
             if !namelogfile.is_null() {
                 free(namelogfile as *mut std::ffi::c_void);
             }
             filename = lglob(s);
             namelogfile = shell_unquote(filename);
-            free(filename as *mut std::ffi::c_void);
             use_logfile(namelogfile);
             sync_logfile();
         }
-        1 => {
-            if logfile < 0 as std::ffi::c_int {
+        QUERY => {
+            if logfile < 0 {
                 error(
                     b"No log file\0" as *const u8 as *const std::ffi::c_char,
                     0 as *mut std::ffi::c_void as *mut PARG,
@@ -205,107 +200,107 @@ pub unsafe extern "C" fn opt_o(mut type_0: std::ffi::c_int, mut s: *const std::f
         _ => {}
     };
 }
+
 #[no_mangle]
-pub unsafe extern "C" fn opt__O(mut type_0: std::ffi::c_int, mut s: *const std::ffi::c_char) {
+pub unsafe extern "C" fn opt__O(ty: i32, s: &str) {
     force_logfile = LTRUE;
-    opt_o(type_0, s);
+    opt_o(ty, s);
 }
+
+/*
+ * Handler for -O option.
+ */
 unsafe extern "C" fn toggle_fraction(
-    mut num: *mut std::ffi::c_int,
-    mut frac: *mut std::ffi::c_long,
-    mut s: *const std::ffi::c_char,
-    mut printopt: *const std::ffi::c_char,
-    mut calc: Option<unsafe extern "C" fn() -> ()>,
-) -> std::ffi::c_int {
-    let mut err: lbool = LFALSE;
-    if s.is_null() {
-        (Some(calc.expect("non-null function pointer"))).expect("non-null function pointer")();
-    } else if *s as std::ffi::c_int == '.' as i32 {
-        let mut tfrac: std::ffi::c_long = 0;
-        s = s.offset(1);
-        tfrac = getfraction(&mut s, printopt, &mut err);
-        if err as u64 != 0 {
+    num: &i32,
+    frac: &i64,
+    s: &str,
+    printopt: Option<&str>,
+    calc: Option<unsafe fn() -> ()>,
+) -> i32 {
+    let mut err = Some(&mut false);
+    if s == "" {
+        if let Some(func) = calc {
+            func();
+        }
+    } else if s == "." {
+        let mut tfrac = 0;
+        tfrac = getfraction(&mut s[1..], printopt, &mut err);
+        if let Some(ref err) = err {
             error(
                 b"Invalid fraction\0" as *const u8 as *const std::ffi::c_char,
                 0 as *mut std::ffi::c_void as *mut PARG,
             );
-            return -(1 as std::ffi::c_int);
+            return -1;
         }
         *frac = tfrac;
-        (Some(calc.expect("non-null function pointer"))).expect("non-null function pointer")();
+        if let Some(func) = calc {
+            calc();
+        }
     } else {
-        let mut tnum: std::ffi::c_int = getnumc(&mut s, printopt, &mut err);
-        if err as u64 != 0 {
+        let (mut tnum, _) = getnumc(&mut s, printopt);
+        if let Some(n) = tnum {
+            *frac = -1;
+            *num = n;
+        } else {
             error(
                 b"Invalid number\0" as *const u8 as *const std::ffi::c_char,
                 0 as *mut std::ffi::c_void as *mut PARG,
             );
-            return -(1 as std::ffi::c_int);
+            return -1;
         }
-        *frac = -(1 as std::ffi::c_int) as std::ffi::c_long;
-        *num = tnum;
     }
-    return 0 as std::ffi::c_int;
+    return 0;
 }
-unsafe extern "C" fn query_fraction(
-    mut value: std::ffi::c_int,
-    mut fraction: std::ffi::c_long,
-    mut int_msg: *const std::ffi::c_char,
-    mut frac_msg: *const std::ffi::c_char,
-) {
+
+unsafe extern "C" fn query_fraction(value: i32, fraction: i64, int_msg: &str, frac_msg: &str) {
     let mut parg: PARG = parg {
         p_string: 0 as *const std::ffi::c_char,
     };
-    if fraction < 0 as std::ffi::c_int as std::ffi::c_long {
+    if fraction < 0 {
         parg.p_int = value;
         error(int_msg, &mut parg);
     } else {
-        let mut buf: [std::ffi::c_char; 23] = [0; 23];
-        let mut len: size_t = 0;
-        snprintf(
-            buf.as_mut_ptr(),
-            ::core::mem::size_of::<[std::ffi::c_char; 23]>() as std::ffi::c_ulong,
-            b".%06ld\0" as *const u8 as *const std::ffi::c_char,
-            fraction,
-        );
-        len = strlen(buf.as_mut_ptr());
-        while len > 2 as std::ffi::c_int as size_t
-            && buf[len.wrapping_sub(1 as std::ffi::c_int as size_t) as usize] as std::ffi::c_int
-                == '0' as i32
-        {
-            len = len.wrapping_sub(1);
+        let mut buf = format!(".{:06}", fraction);
+        let mut len = buf.len();
+        while len > 2 && buf.chars().last() == Some(0) {
+            buf = &buf[..len - 1];
+            len = buf.len();
         }
-        buf[len as usize] = '\0' as i32 as std::ffi::c_char;
         parg.p_string = buf.as_mut_ptr();
         error(frac_msg, &mut parg);
     };
 }
+
+/*
+ * Handlers for -j option.
+ */
 #[no_mangle]
-pub unsafe extern "C" fn opt_j(mut type_0: std::ffi::c_int, mut s: *const std::ffi::c_char) {
-    match type_0 {
-        0 | 2 => {
+pub unsafe extern "C" fn opt_j(mut ty: i32, s: &str) {
+    match ty {
+        INIT | TOGGLE => {
             toggle_fraction(
                 &mut jump_sline,
                 &mut jump_sline_fraction,
                 s,
-                b"j\0" as *const u8 as *const std::ffi::c_char,
+                "j",
                 Some(calc_jump_sline as unsafe extern "C" fn() -> ()),
             );
         }
-        1 => {
+        QUERY => {
             query_fraction(
                 jump_sline,
                 jump_sline_fraction,
-                b"Position target at screen line %d\0" as *const u8 as *const std::ffi::c_char,
-                b"Position target at screen position %s\0" as *const u8 as *const std::ffi::c_char,
+                "Position target at screen line %d",
+                "Position target at screen position %s",
             );
         }
         _ => {}
     };
 }
+
 #[no_mangle]
 pub unsafe extern "C" fn calc_jump_sline() {
-    if jump_sline_fraction >= 0 as std::ffi::c_int as std::ffi::c_long {
+    if jump_sline_fraction >= 0 {
         jump_sline = umuldiv(
             sc_height as uintmax,
             jump_sline_fraction as uintmax,
@@ -313,35 +308,40 @@ pub unsafe extern "C" fn calc_jump_sline() {
         ) as std::ffi::c_int;
     }
     if jump_sline <= header_lines {
-        jump_sline = header_lines + 1 as std::ffi::c_int;
+        jump_sline = header_lines + 1;
     }
 }
+
+/*
+ * Handlers for -# option.
+ */
 #[no_mangle]
-pub unsafe extern "C" fn opt_shift(mut type_0: std::ffi::c_int, mut s: *const std::ffi::c_char) {
-    match type_0 {
-        0 | 2 => {
+pub unsafe extern "C" fn opt_shift(ty: i32, s: &str) {
+    match ty {
+        INIT | TOGGLE => {
             toggle_fraction(
                 &mut shift_count,
                 &mut shift_count_fraction,
                 s,
-                b"#\0" as *const u8 as *const std::ffi::c_char,
+                "#",
                 Some(calc_shift_count as unsafe extern "C" fn() -> ()),
             );
         }
-        1 => {
+        QUERY => {
             query_fraction(
                 shift_count,
                 shift_count_fraction,
-                b"Horizontal shift %d columns\0" as *const u8 as *const std::ffi::c_char,
-                b"Horizontal shift %s of screen width\0" as *const u8 as *const std::ffi::c_char,
+                "Horizontal shift %d columns",
+                "Horizontal shift %s of screen width",
             );
         }
         _ => {}
     };
 }
+
 #[no_mangle]
 pub unsafe extern "C" fn calc_shift_count() {
-    if shift_count_fraction < 0 as std::ffi::c_int as std::ffi::c_long {
+    if shift_count_fraction < 0 {
         return;
     }
     shift_count = umuldiv(
@@ -350,14 +350,15 @@ pub unsafe extern "C" fn calc_shift_count() {
         1000000 as std::ffi::c_int as uintmax,
     ) as std::ffi::c_int;
 }
+
 #[no_mangle]
-pub unsafe extern "C" fn opt_k(mut type_0: std::ffi::c_int, mut s: *const std::ffi::c_char) {
+pub unsafe extern "C" fn opt_k(ty: i32, s: &str) {
     let mut parg: PARG = parg {
         p_string: 0 as *const std::ffi::c_char,
     };
-    match type_0 {
-        0 => {
-            if lesskey(s, LFALSE) != 0 {
+    match ty {
+        INIT => {
+            if lesskey(s, false) != 0 {
                 parg.p_string = s;
                 error(
                     b"Cannot use lesskey file \"%s\"\0" as *const u8 as *const std::ffi::c_char,
@@ -368,14 +369,15 @@ pub unsafe extern "C" fn opt_k(mut type_0: std::ffi::c_int, mut s: *const std::f
         _ => {}
     };
 }
+
 #[no_mangle]
-pub unsafe extern "C" fn opt_ks(mut type_0: std::ffi::c_int, mut s: *const std::ffi::c_char) {
+pub unsafe extern "C" fn opt_ks(ty: i32, s: &str) {
     let mut parg: PARG = parg {
         p_string: 0 as *const std::ffi::c_char,
     };
-    match type_0 {
-        0 => {
-            if lesskey_src(s, LFALSE) != 0 {
+    match ty {
+        INIT => {
+            if lesskey_src(s, false) != 0 {
                 parg.p_string = s;
                 error(
                     b"Cannot use lesskey source file \"%s\"\0" as *const u8
@@ -387,6 +389,7 @@ pub unsafe extern "C" fn opt_ks(mut type_0: std::ffi::c_int, mut s: *const std::
         _ => {}
     };
 }
+
 #[no_mangle]
 pub unsafe extern "C" fn opt_kc(mut type_0: std::ffi::c_int, mut s: *const std::ffi::c_char) {
     match type_0 {
@@ -401,25 +404,33 @@ pub unsafe extern "C" fn opt_kc(mut type_0: std::ffi::c_int, mut s: *const std::
         _ => {}
     };
 }
+
+/*
+ * Handler for -S option.
+ */
 #[no_mangle]
-pub unsafe extern "C" fn opt__S(mut type_0: std::ffi::c_int, mut s: *const std::ffi::c_char) {
-    match type_0 {
-        2 => {
+pub unsafe extern "C" fn opt__S(ty: i32, s: &str) {
+    match ty {
+        TOGGLE => {
             pos_rehead();
         }
         _ => {}
     };
 }
+
+/*
+ * Handler for -t option.
+ */
 #[no_mangle]
-pub unsafe extern "C" fn opt_t(mut type_0: std::ffi::c_int, mut s: *const std::ffi::c_char) {
+pub unsafe extern "C" fn opt_t(ty: i32, s: &str) {
     let mut save_ifile: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
     let mut pos: POSITION = 0;
-    match type_0 {
-        0 => {
-            tagoption = save(s);
+    match ty {
+        INIT => {
+            tagoption = String::from(s);
         }
-        2 => {
-            if secure_allow((1 as std::ffi::c_int) << 11 as std::ffi::c_int) == 0 {
+        TOGGLE => {
+            if !secure_allow(SF_TAGS) {
                 error(
                     b"tags support is not available\0" as *const u8 as *const std::ffi::c_char,
                     0 as *mut std::ffi::c_void as *mut PARG,
@@ -427,10 +438,15 @@ pub unsafe extern "C" fn opt_t(mut type_0: std::ffi::c_int, mut s: *const std::f
             } else {
                 findtag(skipspc(s));
                 save_ifile = save_curr_ifile();
+                /*
+                 * Try to open the file containing the tag
+                 * and search for the tag in that file.
+                 */
                 if edit_tagfile() != 0 || {
                     pos = tagsearch();
-                    pos == -(1 as std::ffi::c_int) as POSITION
+                    pos == NULL_POSITION
                 } {
+                    /* Failed: reopen the old file. */
                     reedit_ifile(save_ifile);
                 } else {
                     unsave_ifile(save_ifile);
@@ -441,18 +457,22 @@ pub unsafe extern "C" fn opt_t(mut type_0: std::ffi::c_int, mut s: *const std::f
         _ => {}
     };
 }
+
+/*
+ * Handler for -T option.
+ */
 #[no_mangle]
-pub unsafe extern "C" fn opt__T(mut type_0: std::ffi::c_int, mut s: *const std::ffi::c_char) {
+pub unsafe extern "C" fn opt__T(ty: i32, s: &str) {
     let mut parg: PARG = parg {
         p_string: 0 as *const std::ffi::c_char,
     };
     let mut filename: *mut std::ffi::c_char = 0 as *mut std::ffi::c_char;
-    match type_0 {
-        0 => {
-            tags = save(s);
+    match ty {
+        INIT => {
+            tags = String::from(s);
         }
-        2 => {
-            s = skipspc(s);
+        TOGGLE => {
+            s = s.trim_start();
             if !tags.is_null() && tags != ztags.as_mut_ptr() {
                 free(tags as *mut std::ffi::c_void);
             }
@@ -460,7 +480,7 @@ pub unsafe extern "C" fn opt__T(mut type_0: std::ffi::c_int, mut s: *const std::
             tags = shell_unquote(filename);
             free(filename as *mut std::ffi::c_void);
         }
-        1 => {
+        QUERY => {
             parg.p_string = tags;
             error(
                 b"Tags file \"%s\"\0" as *const u8 as *const std::ffi::c_char,
@@ -470,14 +490,29 @@ pub unsafe extern "C" fn opt__T(mut type_0: std::ffi::c_int, mut s: *const std::
         _ => {}
     };
 }
+
+/*
+ * Handler for -p option.
+ */
 #[no_mangle]
-pub unsafe extern "C" fn opt_p(mut type_0: std::ffi::c_int, mut s: *const std::ffi::c_char) {
-    match type_0 {
-        0 => {
+pub unsafe extern "C" fn opt_p(ty: i32, s: &str) {
+    match ty {
+        INIT => {
+            /*
+             * Unget a command for the specified string.
+             */
             if less_is_more != 0 {
-                every_first_cmd = save(s);
+                /*
+                 * In "more" mode, the -p argument is a command,
+                 * not a search string, so we don't need a slash.
+                 */
+                every_first_cmd = String::from(s);
             } else {
-                plusoption = LTRUE;
+                plusoption = true;
+                /*
+                 * {{ This won't work if the "/" command is
+                 *    changed or invalidated by a .lesskey file. }}
+                 */
                 ungetsc(b"/\0" as *const u8 as *const std::ffi::c_char);
                 ungetsc(s);
                 ungetcc_end_command();
@@ -486,41 +521,43 @@ pub unsafe extern "C" fn opt_p(mut type_0: std::ffi::c_int, mut s: *const std::f
         _ => {}
     };
 }
+
+/*
+ * Handler for -P option.
+ */
 #[no_mangle]
-pub unsafe extern "C" fn opt__P(mut type_0: std::ffi::c_int, mut s: *const std::ffi::c_char) {
-    let mut proto: *mut *mut std::ffi::c_char = 0 as *mut *mut std::ffi::c_char;
+pub unsafe extern "C" fn opt__P(ty: i32, s: &str) {
+    let mut proto: &str;
     let mut parg: PARG = parg {
         p_string: 0 as *const std::ffi::c_char,
     };
-    match type_0 {
-        0 | 2 => {
-            match *s as std::ffi::c_int {
-                115 => {
-                    proto = &mut *prproto.as_mut_ptr().offset(0 as std::ffi::c_int as isize)
-                        as *mut *mut std::ffi::c_char;
-                    s = s.offset(1);
+    let chars = s.chars();
+    match ty {
+        INIT | TOGGLE => {
+            match chars.next() {
+                Some('s') => {
+                    proto = &prproto[PR_SHORT];
+                    chars.next();
                 }
-                109 => {
-                    proto = &mut *prproto.as_mut_ptr().offset(1 as std::ffi::c_int as isize)
-                        as *mut *mut std::ffi::c_char;
-                    s = s.offset(1);
+                Some('m') => {
+                    proto = prproto[PR_MEDIUM];
+                    chars.next();
                 }
-                77 => {
-                    proto = &mut *prproto.as_mut_ptr().offset(2 as std::ffi::c_int as isize)
-                        as *mut *mut std::ffi::c_char;
-                    s = s.offset(1);
+                Some('M') => {
+                    proto = prproto[PR_LONG];
+                    chars.next();
                 }
-                61 => {
-                    proto = &mut eqproto;
-                    s = s.offset(1);
+                Some('=') => {
+                    proto = &eqproto;
+                    chars.next();
                 }
-                104 => {
-                    proto = &mut hproto;
-                    s = s.offset(1);
+                Some('h') => {
+                    proto = &hproto;
+                    chars.next();
                 }
-                119 => {
-                    proto = &mut wproto;
-                    s = s.offset(1);
+                Some('w') => {
+                    proto = &wproto;
+                    chars.next();
                 }
                 _ => {
                     proto = &mut *prproto.as_mut_ptr().offset(0 as std::ffi::c_int as isize)
@@ -530,39 +567,54 @@ pub unsafe extern "C" fn opt__P(mut type_0: std::ffi::c_int, mut s: *const std::
             free(*proto as *mut std::ffi::c_void);
             *proto = save(s);
         }
-        1 => {
+        QUERY => {
             parg.p_string = *prproto.as_mut_ptr().offset(pr_type as isize);
             error(b"%s\0" as *const u8 as *const std::ffi::c_char, &mut parg);
         }
         _ => {}
     };
 }
+
+/*
+ * Handler for the -b option.
+ */
 #[no_mangle]
-pub unsafe extern "C" fn opt_b(mut type_0: std::ffi::c_int, mut s: *const std::ffi::c_char) {
-    match type_0 {
-        0 | 2 => {
+pub unsafe extern "C" fn opt_b(ty: i32, s: &str) {
+    match ty {
+        INIT | TOGGLE => {
+            /*
+             * Set the new number of buffers.
+             */
             ch_setbufspace(bufspace as ssize_t);
         }
-        1 | _ => {}
+        QUERY | _ => {}
     };
 }
+
+/*
+ * Handler for the -i option.
+ */
 #[no_mangle]
-pub unsafe extern "C" fn opt_i(mut type_0: std::ffi::c_int, mut s: *const std::ffi::c_char) {
-    match type_0 {
-        2 => {
+pub unsafe extern "C" fn opt_i(ty: i32, s: &str) {
+    match ty {
+        TOGGLE => {
             chg_caseless();
         }
-        1 | 0 | _ => {}
+        QUERY | INIT | _ => {}
     };
 }
+
+/*
+ * Handler for the -V option.
+ */
 #[no_mangle]
-pub unsafe extern "C" fn opt__V(mut type_0: std::ffi::c_int, mut s: *const std::ffi::c_char) {
-    match type_0 {
-        2 | 1 => {
+pub unsafe extern "C" fn opt__V(ty: i32, s: &str) {
+    match ty {
+        TOGGLE | QUERY => {
             dispversion();
         }
-        0 => {
-            set_output(1 as std::ffi::c_int);
+        INIT => {
+            set_output(1); /* Force output to stdout per GNU standard for --version output. */
             putstr(b"less \0" as *const u8 as *const std::ffi::c_char);
             putstr(version.as_mut_ptr());
             putstr(b" (\0" as *const u8 as *const std::ffi::c_char);
@@ -613,57 +665,55 @@ pub unsafe extern "C" fn opt__V(mut type_0: std::ffi::c_int, mut s: *const std::
         _ => {}
     };
 }
-unsafe extern "C" fn color_from_namechar(mut namechar: std::ffi::c_char) -> std::ffi::c_int {
-    match namechar as std::ffi::c_int {
-        66 => return (2 as std::ffi::c_int) << 8 as std::ffi::c_int,
-        67 => return (3 as std::ffi::c_int) << 8 as std::ffi::c_int,
-        69 => return (4 as std::ffi::c_int) << 8 as std::ffi::c_int,
-        72 => return (9 as std::ffi::c_int) << 8 as std::ffi::c_int,
-        77 => return (6 as std::ffi::c_int) << 8 as std::ffi::c_int,
-        78 => return (5 as std::ffi::c_int) << 8 as std::ffi::c_int,
-        80 => return (7 as std::ffi::c_int) << 8 as std::ffi::c_int,
-        82 => return (8 as std::ffi::c_int) << 8 as std::ffi::c_int,
-        83 => return (10 as std::ffi::c_int) << 8 as std::ffi::c_int,
-        87 | 65 => return (1 as std::ffi::c_int) << 8 as std::ffi::c_int,
-        110 => return 0 as std::ffi::c_int,
-        115 => return (1 as std::ffi::c_int) << 3 as std::ffi::c_int,
-        100 => return (1 as std::ffi::c_int) << 1 as std::ffi::c_int,
-        117 => return (1 as std::ffi::c_int) << 0 as std::ffi::c_int,
-        107 => return (1 as std::ffi::c_int) << 2 as std::ffi::c_int,
+
+unsafe extern "C" fn color_from_namechar(namechar: char) -> i32 {
+    match namechar {
+        'B' => return AT_COLOR_BIN,
+        'C' => return AT_COLOR_CTRL,
+        'E' => return AT_COLOR_ERROR,
+        'H' => return AT_COLOR_HEADER,
+        'M' => return AT_COLOR_MARK,
+        'N' => return AT_COLOR_LINENUM,
+        'P' => return AT_COLOR_PROMPT,
+        'R' => return AT_COLOR_RSCROLL,
+        'S' => return AT_COLOR_SEARCH,
+        'W' | 'A' =>  return AT_COLOR_ATTN,
+        'n' => return AT_NORMAL,
+        's' => return AT_STANDOUT,
+        'd' => return AT_BOLD,
+        'u' => return AT_UNDERLINE,
+        'k' => return AT_BLINK,
         _ => {
-            if namechar as std::ffi::c_int >= '1' as i32
-                && namechar as std::ffi::c_int
-                    <= '0' as i32
-                        + (16 as std::ffi::c_int - 10 as std::ffi::c_int - 1 as std::ffi::c_int)
-            {
-                return 10 as std::ffi::c_int + (namechar as std::ffi::c_int - '0' as i32)
-                    << 8 as std::ffi::c_int;
-            }
-            return -(1 as std::ffi::c_int);
+            if (namechar >= '1' && namechar <= '0' + NUM_SEARCH_COLORS)
+                return AT_COLOR_SUBSEARCH(namechar - '0');
+            return -1;
         }
-    };
+    }
 }
+
+/*
+ * Handler for the -D option.
+ */
 #[no_mangle]
-pub unsafe extern "C" fn opt_D(mut type_0: std::ffi::c_int, mut s: *const std::ffi::c_char) {
+pub unsafe extern "C" fn opt_D(ty: i32, s: &str) {
     let mut p: PARG = parg {
         p_string: 0 as *const std::ffi::c_char,
     };
     let mut attr: std::ffi::c_int = 0;
-    match type_0 {
-        0 | 2 => {
-            attr = color_from_namechar(*s.offset(0 as std::ffi::c_int as isize));
-            if attr < 0 as std::ffi::c_int {
-                p.p_char = *s.offset(0 as std::ffi::c_int as isize);
+    let chars = s.chars();
+    match ty {
+        INIT | TOGGLE => {
+            let ch = chars.get(0).unwrap();
+            attr = color_from_namechar(ch);
+            if attr < 0 {
+                p.p_char = ch;
                 error(
                     b"Invalid color specifier '%c'\0" as *const u8 as *const std::ffi::c_char,
                     &mut p,
                 );
                 return;
             }
-            if use_color == 0
-                && attr & (16 as std::ffi::c_int - 1 as std::ffi::c_int) << 8 as std::ffi::c_int
-                    != 0
-            {
+            if use_color == 0 && attr & AT_COLOR != 0 {
                 error(
                     b"Set --use-color before changing colors\0" as *const u8
                         as *const std::ffi::c_char,
@@ -671,10 +721,10 @@ pub unsafe extern "C" fn opt_D(mut type_0: std::ffi::c_int, mut s: *const std::f
                 );
                 return;
             }
-            s = s.offset(1);
-            if set_color_map(attr, s) < 0 as std::ffi::c_int {
+            chars.next();
+            if set_color_map(attr, s) < 0 {
                 p.p_string = s;
-                error(
+                error
                     b"Invalid color string \"%s\"\0" as *const u8 as *const std::ffi::c_char,
                     &mut p,
                 );
@@ -684,9 +734,11 @@ pub unsafe extern "C" fn opt_D(mut type_0: std::ffi::c_int, mut s: *const std::f
         _ => {}
     };
 }
+
+
 #[no_mangle]
-pub unsafe extern "C" fn set_tabs(mut s: *const std::ffi::c_char, mut len: size_t) {
-    let mut i: std::ffi::c_int = 0;
+pub unsafe extern "C" fn set_tabs(s: &str, len: usize) {
+    let mut i = 0;
     let mut es: *const std::ffi::c_char = s.offset(len as isize);
     i = 1 as std::ffi::c_int;
     while i < 128 as std::ffi::c_int {
@@ -906,21 +958,18 @@ pub unsafe extern "C" fn opt_query(mut type_0: std::ffi::c_int, mut s: *const st
     };
 }
 #[no_mangle]
-pub unsafe extern "C" fn opt_match_shift(
-    mut type_0: std::ffi::c_int,
-    mut s: *const std::ffi::c_char,
-) {
-    match type_0 {
-        0 | 2 => {
+pub unsafe extern "C" fn opt_match_shift(ty: i32, s: &str) {
+    match ty {
+        INIT | TOGGLE => {
             toggle_fraction(
                 &mut match_shift,
                 &mut match_shift_fraction,
                 s,
-                b"--match-shift\0" as *const u8 as *const std::ffi::c_char,
+                "--match-shift",
                 Some(calc_match_shift as unsafe extern "C" fn() -> ()),
             );
         }
-        1 => {
+        QUERY => {
             query_fraction(
                 match_shift,
                 match_shift_fraction,
@@ -932,6 +981,7 @@ pub unsafe extern "C" fn opt_match_shift(
         _ => {}
     };
 }
+
 #[no_mangle]
 pub unsafe extern "C" fn calc_match_shift() {
     if match_shift_fraction < 0 as std::ffi::c_int as std::ffi::c_long {
@@ -1088,6 +1138,7 @@ pub unsafe extern "C" fn next_cnum(
     }
     return n;
 }
+
 unsafe extern "C" fn parse_header(
     mut s: *const std::ffi::c_char,
     mut lines: *mut std::ffi::c_int,
@@ -1189,20 +1240,17 @@ pub unsafe extern "C" fn opt_header(mut type_0: std::ffi::c_int, mut s: *const s
     };
 }
 #[no_mangle]
-pub unsafe extern "C" fn opt_search_type(
-    mut type_0: std::ffi::c_int,
-    mut s: *const std::ffi::c_char,
-) {
-    let mut st: std::ffi::c_int = 0;
+pub unsafe extern "C" fn opt_search_type(ty: i32, s: &str) {
+    let mut st = 0;
     let mut parg: PARG = parg {
         p_string: 0 as *const std::ffi::c_char,
     };
     let mut buf: [std::ffi::c_char; 16] = [0; 16];
     let mut bp: *mut std::ffi::c_char = 0 as *mut std::ffi::c_char;
     let mut i: std::ffi::c_int = 0;
-    match type_0 {
-        0 | 2 => {
-            st = 0 as std::ffi::c_int;
+    match ty {
+        INIT | TOGGLE => {
+            st = 0;
             while *s as std::ffi::c_int != '\0' as i32 {
                 match *s as std::ffi::c_int {
                     69 | 101 | 5 => {
@@ -1362,49 +1410,50 @@ unsafe extern "C" fn do_nosearch_headers(
         _ => {}
     };
 }
+
 #[no_mangle]
-pub unsafe extern "C" fn opt_nosearch_headers(
-    mut type_0: std::ffi::c_int,
-    mut s: *const std::ffi::c_char,
-) {
-    do_nosearch_headers(type_0, 1 as std::ffi::c_int, 1 as std::ffi::c_int);
+pub unsafe extern "C" fn opt_nosearch_headers(ty: i32, s: &str) {
+    do_nosearch_headers(ty, 1, 1);
 }
+
 #[no_mangle]
 pub unsafe extern "C" fn opt_nosearch_header_lines(
-    mut type_0: std::ffi::c_int,
-    mut s: *const std::ffi::c_char,
+    ty: i32,
+    s: &str,
 ) {
     do_nosearch_headers(type_0, 1 as std::ffi::c_int, 0 as std::ffi::c_int);
 }
+
 #[no_mangle]
-pub unsafe extern "C" fn opt_nosearch_header_cols(
-    mut type_0: std::ffi::c_int,
-    mut s: *const std::ffi::c_char,
-) {
-    do_nosearch_headers(type_0, 0 as std::ffi::c_int, 1 as std::ffi::c_int);
+pub unsafe extern "C" fn opt_nosearch_header_cols(ty: i32, s: &str) {
+    do_nosearch_headers(ty, 0, 1);
 }
+
 #[no_mangle]
-pub unsafe extern "C" fn opt_no_paste(mut type_0: std::ffi::c_int, mut s: *const std::ffi::c_char) {
-    match type_0 {
-        2 => {
+pub unsafe extern "C" fn opt_no_paste(ty: i32, s: &str) {
+    match ty {
+        TOGGLE => {
             if no_paste != 0 {
                 init_bracketed_paste();
             } else {
                 deinit_bracketed_paste();
             }
         }
-        0 | 1 | _ => {}
+        INIT | QUERY | _ => {}
     };
 }
+
 #[no_mangle]
-pub unsafe extern "C" fn chop_line() -> std::ffi::c_int {
-    return (chopline != 0
-        || header_cols > 0 as std::ffi::c_int
-        || header_lines > 0 as std::ffi::c_int) as std::ffi::c_int;
+pub unsafe extern "C" fn chop_line() -> i32 {
+    chopline != 0 || header_cols > 0 || header_lines > 0
 }
+
+/*
+ * Get the "screen window" size.
+ */
 #[no_mangle]
-pub unsafe extern "C" fn get_swindow() -> std::ffi::c_int {
-    if swindow > 0 as std::ffi::c_int {
+pub unsafe extern "C" fn get_swindow() -> i32 {
+    if swindow > 0 {
         return swindow;
     }
     return sc_height - header_lines + swindow;

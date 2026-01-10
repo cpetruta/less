@@ -1,7 +1,9 @@
 use crate::decode::lgetenv;
-use bitflags::bitflags;
 use crate::defs::*;
+use crate::opttbl::{findopt, findopt_name};
+use crate::opttbl::{LOption, OptAction, OptFlags, ToggleHow};
 use crate::util::str_to_int;
+use bitflags::bitflags;
 use std::ffi::CString;
 
 extern "C" {
@@ -28,12 +30,6 @@ extern "C" {
     fn ungetcc_end_command();
     fn ungetsc(s: *const std::ffi::c_char);
     fn isnullenv(s: *const std::ffi::c_char) -> lbool;
-    fn findopt(c: std::ffi::c_int) -> *mut loption;
-    fn findopt_name(
-        p_optname: *mut *const std::ffi::c_char,
-        p_oname: *mut *const std::ffi::c_char,
-        p_ambig: *mut lbool,
-    ) -> *mut loption;
     fn error(fmt: *const std::ffi::c_char, parg: *mut PARG);
     fn repaint_hilite(on: lbool);
     fn chg_hilite();
@@ -46,77 +42,12 @@ extern "C" {
 #[derive(Copy, Clone)]
 #[repr(C)]
 pub union parg {
-    pub p_string: Option<String>,
+    pub p_string: *const std::ffi::c_char,
     pub p_int: i32,
     pub p_linenum: LINENUM,
     pub p_char: u8,
 }
 pub type PARG = parg;
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-pub struct optname {
-    /// List of synonymus long (GNU-style) option names
-    oname: Vec<String>,
-}
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-pub struct LOption {
-    /// The controlling letter (a-z)
-    opt_char: char,
-    /// Long (GNU-style) option name
-    name: Option<&'static str>,
-    /// Type of the option
-    opt_type: OptType,
-    flags: OptFlags,
-    /// Default value
-    default: i32,
-    /// Associated variable
-    ovar: Option<&'static mut i32>,
-    /// Special handling function
-    pub handler: Option<fn(OptAction, &str)>,
-    /// Description fore each value
-    pub odesc: [&'static str; 3],
-    kind: OptType,
-}
-
-bitflags! {
-    struct OptFlags: u32 {
-        const UNSUPPORTED = 0x01;
-        const NO_TOGGLE   = 0x02;
-        const NO_QUERY    = 0x04;
-        const REPAINT     = 0x08;
-        const HL_REPAINT  = 0x10;
-    }
-}
-
-#[derive(Copy, Clone, PartialEq)]
-enum OptType {
-    Bool,
-    Triple,
-    String,
-    Number,
-}
-
-#[derive(Copy, Clone)]
-enum OptAction {
-    Query,
-    Toggle,
-}
-
-#[derive(Copy, Clone)]
-enum InitState {
-    Init,
-}
-
-#[derive(Copy, Clone, PartialEq)]
-enum ToggleHow {
-    NoToggle,
-    Toggle,
-    Unset,
-    Set,
-}
 
 /// Global state
 struct ScanContext {
@@ -127,51 +58,50 @@ struct ScanContext {
 
 struct ConvertError;
 
-static mut pendopt: Option<String> = None;
+static mut pendopt: Option<LOption> = None;
 pub static mut plusoption: bool = false;
+pub const END_OPTION_STRING: char = '$';
 /// Max length of a long option name
-const OPTNAME_MAX: usize = 32;
-/// Invalid option letter
-const OLETTER_NONE: u8 = b'\1';
+const OLETTER_NONE: char = '\x01';
 
 /// Return a printable description of an option
 #[no_mangle]
-unsafe extern "C" fn opt_desc(o: loption) -> &str {
+unsafe extern "C" fn opt_desc(o: &LOption) -> String {
     if o.oletter == OLETTER_NONE {
-        format!("--{}", o.onames[0].oname);
+        format!("--{}", o.onames[0])
     } else {
-        format!("-{} (--{})", o.oletter, o.onames[0].oname)
+        format!("-{} (--{})", o.oletter, o.onames[0])
     }
 }
 
 /// Return a string suitable for printing as the "name" of an option.
 /// For example, if the option letter is 'x', just return "-x".
 #[no_mangle]
-pub unsafe extern "C" fn propt(c: u8) -> &str {
+pub unsafe extern "C" fn propt(c: char) -> String {
     format!("-{}", c)
 }
 
 /// Scan an argument (either from the command line or from the
 /// LESS environment variable) and process it.
 #[no_mangle]
-unsafe fn scan_option(ctx: &mut ScanContext, mut s: &str, is_env: bool) {
+unsafe fn scan_option<'a>(ctx: &'a mut ScanContext, mut s: &'a str, is_env: bool) {
     if s.is_empty() {
         return;
     }
 
     /* Handle pending option argument */
     if let Some(opt) = ctx.pending.take() {
-        if !opt.flags.contains(OptFlags::UNSUPPORTED) {
-            match opt.opt_type {
-                OptType::String => {
-                    if let Some(handler) = opt.handler {
-                        opt.handler(InitState::Init, Some(s.to_string()));
+        if !opt.otype.contains(OptFlags::UNSUPPORTED) {
+            match opt.otype {
+                OptFlags::STRING => {
+                    if let Some(ofunc) = opt.ofunc {
+                        opt.ofunc.unwrap()(OptAction::Init, Some(s));
                     }
                 }
-                OptType::Number => {
-                    if let Some(val) = opt.value {
-                        *val = getnumc(s, printopt, None);
-                    }
+                OptFlags::NUMBER => {
+                    let (val, _) = getnumc(s, None);
+                    // TODO use consistent types i32 or i64
+                    opt.ovar = Some(val.unwrap() as i32);
                 }
                 _ => {}
             }
@@ -205,13 +135,15 @@ unsafe fn scan_option(ctx: &mut ScanContext, mut s: &str, is_env: bool) {
 
             '+' => {
                 ctx.plus_option = true;
-                let (cmd, rest) = extract_string(s);
-                s = rest;
+                if let Some((cmd, rest)) = optstring(s, &propt('+'), None) {
+                    s = rest;
 
-                if cmd.starts_with('+') {
-                    every_first_cmd = &cmd[1..].to_string();
+                    if cmd.starts_with('+') {
+                        every_first_cmd =
+                            CString::new(&cmd[1..]).unwrap().as_ptr() as *mut std::ffi::c_char;
+                    }
+                    continue;
                 }
-                continue;
             }
 
             '0'..='9' => {
@@ -227,21 +159,25 @@ unsafe fn scan_option(ctx: &mut ScanContext, mut s: &str, is_env: bool) {
         }
 
         /* Lookup option */
-        let (opt, print_name) = if let Some(name) = opt_name.take() {
-            match find_option_by_name(name) {
-                Some(o) => (o, name),
-                None => {
-                    error(b"No such option" as *const u8 as *const std::ffi::c_char,
-                        0 as *mut std::ffi::c_void as *mut PARG);
+        let (&mut opt, print_name) = if let Some(name) = opt_name.take() {
+            match findopt_name(name, None) {
+                (Some(o), _) => (o, name),
+                (None, _) => {
+                    error(
+                        b"No such option" as *const u8 as *const std::ffi::c_char,
+                        0 as *mut std::ffi::c_void as *mut PARG,
+                    );
                     return;
                 }
             }
         } else {
-            match find_option_by_char(optc) {
+            match findopt(optc) {
                 Some(o) => (o, optc.to_string().as_str()),
                 None => {
-                    error(b"No such option" as *const u8 as *const std::ffi::c_char,
-                        0 as *mut std::ffi::c_void as *mut PARG);
+                    error(
+                        b"No such option" as *const u8 as *const std::ffi::c_char,
+                        0 as *mut std::ffi::c_void as *mut PARG,
+                    );
                     return;
                 }
             }
@@ -249,48 +185,58 @@ unsafe fn scan_option(ctx: &mut ScanContext, mut s: &str, is_env: bool) {
 
         let mut arg: Option<String> = None;
 
-        match opt.opt_type {
-            OptType::Bool => {
-                if let Some(v) = opt.value {
-                    *v = if set_default { opt.default } else { !opt.default };
+        match opt.otype {
+            OptFlags::BOOL => {
+                if let Some(mut v) = opt.ovar {
+                    v = if set_default {
+                        opt.odefault
+                    } else {
+                        !opt.odefault
+                    };
                 }
             }
 
-            OptType::Triple => {
-                if let Some(v) = opt.value {
+            OptFlags::TRIPLE => {
+                if let Some(mut v) = opt.ovar {
                     if set_default {
-                        *v = opt.default;
-                    } else if is_env && opt.opt_char == 'r' {
-                        *v = 2;
+                        v = opt.default;
+                    } else if is_env && opt.oletter == 'r' {
+                        v = 2;
                     } else {
-                        *v = flip_triple(opt.default, optc.is_lowercase());
+                        v = flip_triple(opt.default, optc.is_lowercase());
                     }
                 }
             }
 
-            OptType::String => {
+            OptFlags::STRING => {
                 if s.is_empty() {
                     ctx.pending = Some(opt);
                     return;
                 }
-                let (val, rest) = optstring(s, printopt, o.odesc[1]);
-                arg = Some(val);
-                s = rest;
+                // FIXME proper printopt
+                if let Some((val, rest)) = optstring(s, "", opt.odesc[1]) {
+                    arg = Some(val);
+                    s = rest;
+                }
             }
 
-            OptType::Number => {
+            OptFlags::NUMBER => {
                 if s.is_empty() {
                     ctx.pending = Some(opt);
                     return;
                 }
-                if let Some(v) = opt.value {
-                    *v = parse_number(s);
+                if let Some(mut v) = opt.ovar {
+                    let (v, _) = getnumc(s, None);
+                    opt.ovar = Some(v.unwrap() as i32);
                 }
+            }
+            _ => {
+                unreachable!();
             }
         }
 
-        if let Some(handler) = opt.handler {
-            handler(InitState::Init, arg);
+        if let Some(ofunc) = opt.ofunc {
+            ofunc(OptAction::Init, &arg.unwrap());
         }
     }
 }
@@ -303,7 +249,7 @@ unsafe fn scan_option(ctx: &mut ScanContext, mut s: &str, is_env: bool) {
 ///      OPT_UNSET       set to the default value
 ///      OPT_SET         set to the inverse of the default value
 #[no_mangle]
-fn toggle_option(
+unsafe fn toggle_option(
     o: Option<&LOption>,
     lower: bool,
     mut s: &str,
@@ -314,34 +260,41 @@ fn toggle_option(
         Some(opt) => opt,
         None => {
             error(
-                b"No such option\0"
-                as *const u8 as *const std::ffi::c_char,
-                0 as *mut std::ffi::c_void as *mut PARG
+                b"No such option\0" as *const u8 as *const std::ffi::c_char,
+                0 as *mut std::ffi::c_void as *mut PARG,
             );
             return;
         }
     };
 
-    if how_toggle == ToggleHow::Toggle && o.flags.contains(OptFlags::NO_TOGGLE) {
-        error("Cannot change the %s option", Some(opt_desc(o)));
+    if how_toggle == ToggleHow::Toggle && o.otype.contains(OptFlags::NO_TOGGLE) {
+        error(
+            b"Cannot change the %s option" as *const u8 as *const std::ffi::c_char,
+            0 as *mut std::ffi::c_void as *mut PARG,
+        );
         return;
     }
 
-    if how_toggle == ToggleHow::NoToggle && o.flags.contains(OptFlags::NO_QUERY) {
-        error("Cannot query the %s option", Some(opt_desc(o)));
+    if how_toggle == ToggleHow::NoToggle && o.otype.contains(OptFlags::NO_QUERY) {
+        error(
+            b"Cannot query the %s option" as *const u8 as *const std::ffi::c_char,
+            0 as *mut std::ffi::c_void as *mut PARG,
+        );
         return;
     }
 
     /*
      * Detect fake toggle for string/number options
      *
-	 * Check for something which appears to be a do_toggle
-	 * (because the "-" command was used), but really is not.
-	 * This could be a string option with no string, or
-	 * a number option with no number.
+     * Check for something which appears to be a do_toggle
+     * (because the "-" command was used), but really is not.
+     * This could be a string option with no string, or
+     * a number option with no number.
      */
-    match o.kind {
-        OptType::String | OptType::Number => {
+    let otype =
+        OptFlags::BOOL | OptFlags::TRIPLE | OptFlags::NUMBER | OptFlags::STRING | OptFlags::NOVAR;
+    match o.otype {
+        OptFlags::STRING | OptFlags::NUMBER => {
             if how_toggle == ToggleHow::Toggle && s.is_empty() {
                 how_toggle = ToggleHow::NoToggle;
             }
@@ -353,62 +306,65 @@ fn toggle_option(
      * Actually change the option
      */
     if how_toggle != ToggleHow::NoToggle {
-        match o.kind {
-            OptType::Bool => {
-                if let Some(v) = o.ovar {
+        match o.otype {
+            OptFlags::BOOL => {
+                if let Some(mut v) = o.ovar {
                     match how_toggle {
-                        ToggleHow::Toggle => *v = !*v,
-                        ToggleHow::Unset  => *v = o.default,
-                        ToggleHow::Set    => *v = !o.default,
+                        ToggleHow::Toggle => v = !v,
+                        ToggleHow::Unset => v = o.odefault,
+                        ToggleHow::Set => v = !o.odefault,
                         _ => {}
                     }
                 }
             }
 
-            OptType::Triple => {
-                if let Some(v) = o.ovar {
+            OptFlags::TRIPLE => {
+                if let Some(mut v) = o.ovar {
                     match how_toggle {
-                        ToggleHow::Toggle => *v = flip_triple(*v, lower),
-                        ToggleHow::Unset  => *v = o.default,
-                        ToggleHow::Set    => *v = flip_triple(o.default, lower),
+                        ToggleHow::Toggle => v = flip_triple(v, lower),
+                        ToggleHow::Unset => v = o.odefault,
+                        ToggleHow::Set => v = flip_triple(o.odefault, lower),
                         _ => {}
                     }
                 }
             }
 
-            OptType::String => {
-                match how_toggle {
-                    ToggleHow::Set | ToggleHow::Unset => {
-                        error(
-                            b"Cannot use \"-+\" or \"-!\" for a string option\0"
-                            as *const u8 as *const std::ffi::c_char,
-                            0 as *mut std::ffi::c_void as *mut PARG
-                        );
-                        return;
-                    }
-                    _ => {}
+            OptFlags::STRING => match how_toggle {
+                ToggleHow::Set | ToggleHow::Unset => {
+                    error(
+                        b"Cannot use \"-+\" or \"-!\" for a string option\0" as *const u8
+                            as *const std::ffi::c_char,
+                        0 as *mut std::ffi::c_void as *mut PARG,
+                    );
+                    return;
                 }
-            }
+                _ => {}
+            },
 
-            OptType::Number => {
-                if let Some(v) = o.ovar {
+            OptFlags::NUMBER => {
+                if let Some(mut v) = o.ovar {
                     match how_toggle {
                         ToggleHow::Toggle => {
                             let mut err = false;
-                            if let Some(num) = getnumc(&mut s, None, Some(&mut err)) {
-                                *v = num as i32;
+                            if let (Some(num), _) = getnumc(&mut s, None) {
+                                v = num as i32;
                             }
                         }
-                        ToggleHow::Unset => *v = o.default,
+                        ToggleHow::Unset => v = o.odefault,
                         ToggleHow::Set => {
-                            error(b"Can't use \"-!\" for a numeric option\0"
-                                as *const u8 as *const std::ffi::c_char,
-                                0 as *mut std::ffi::c_void as *mut PARG);
+                            error(
+                                b"Can't use \"-!\" for a numeric option\0" as *const u8
+                                    as *const std::ffi::c_char,
+                                0 as *mut std::ffi::c_void as *mut PARG,
+                            );
                             return;
                         }
                         _ => {}
                     }
                 }
+            }
+            _ => {
+                unimplemented!();
             }
         }
     }
@@ -416,41 +372,47 @@ fn toggle_option(
     /*
      * Call option handler
      */
-    if let Some(handler) = o.handler {
+    if let Some(ofunc) = o.ofunc {
         let action = if how_toggle == ToggleHow::NoToggle {
             OptAction::Query
         } else {
             OptAction::Toggle
         };
-        handler(action, s);
+        ofunc(action, Some(s));
     }
 
     /*
      * Print result
      */
     if !no_prompt {
-        match o.kind {
-            OptType::Bool | OptType::Triple => {
+        let otype = OptFlags::BOOL
+            | OptFlags::TRIPLE
+            | OptFlags::NUMBER
+            | OptFlags::STRING
+            | OptFlags::NOVAR;
+        match o.otype & otype {
+            OptFlags::BOOL | OptFlags::TRIPLE => {
                 if let Some(v) = o.ovar {
-                    let s = CString::new(o.odesc[*v as usize]).unwrap().as_ptr() as *const u8 as *const std::ffi::c_char;
+                    let s = CString::new(o.odesc[v as usize]).unwrap().as_ptr() as *const u8
+                        as *const std::ffi::c_char;
                     error(s, 0 as *mut std::ffi::c_void as *mut PARG);
                 }
             }
 
-            OptType::Number => {
+            OptFlags::NUMBER => {
                 if let Some(v) = o.ovar {
-                    let s = CString::new(o.odesc[1]).unwrap().as_ptr() as *const u8 as *const std::ffi::c_char;
+                    let s = CString::new(o.odesc[1]).unwrap().as_ptr() as *const u8
+                        as *const std::ffi::c_char;
                     error(s, 0 as *mut std::ffi::c_void as *mut PARG);
                 }
             }
 
-            OptType::String => {
-                /* already printed */
-            }
+            OptFlags::STRING => { /* already printed */ }
+            _ => {}
         }
     }
 
-    if how_toggle != ToggleHow::NoToggle && o.flags.contains(OptFlags::REPAINT) {
+    if how_toggle != ToggleHow::NoToggle && o.otype.contains(OptFlags::REPAINT) {
         screen_trashed();
     }
 }
@@ -458,11 +420,7 @@ fn toggle_option(
 /// "Toggle" a triple-valued option.
 unsafe extern "C" fn flip_triple(val: i32, mut lc: bool) -> i32 {
     if lc {
-        return if val == OPT_ON {
-            OPT_OFF
-        } else {
-            OPT_ON
-        };
+        return if val == OPT_ON { OPT_OFF } else { OPT_ON };
     } else {
         return if val == OPT_ONPLUS {
             OPT_OFF
@@ -474,9 +432,12 @@ unsafe extern "C" fn flip_triple(val: i32, mut lc: bool) -> i32 {
 
 ///  Determine if an option takes a parameter.
 #[no_mangle]
-pub unsafe extern "C" fn opt_has_param(o: Option<&loption>) -> bool {
+pub unsafe extern "C" fn opt_has_param(o: Option<&LOption>) -> bool {
     if let Some(opt) = o {
-        if o.otype & (O_BOOL | O_TRIPLE | O_NOVAR | O_NO_TOGGLE) != 0 {
+        if !(opt.otype
+            & (OptFlags::BOOL | OptFlags::TRIPLE | OptFlags::NOVAR | OptFlags::NO_TOGGLE))
+            .is_empty()
+        {
             return false;
         }
     } else {
@@ -488,9 +449,9 @@ pub unsafe extern "C" fn opt_has_param(o: Option<&loption>) -> bool {
 /// Return the prompt to be used for a given option letter.
 /// Only string and number valued options have prompts.
 #[no_mangle]
-pub unsafe extern "C" fn opt_prompt(o: Option<&loption>) -> Option<String> {
+pub unsafe extern "C" fn opt_prompt(o: Option<&LOption>) -> Option<String> {
     if let Some(opt) = o {
-        if opt.otype & (O_STRING | O_NUMBER) == 0 {
+        if (opt.otype & (OptFlags::STRING | OptFlags::NUMBER)).is_empty() {
             return Some(String::from("?"));
         }
     } else {
@@ -523,20 +484,21 @@ pub unsafe extern "C" fn isoptpending() -> bool {
 
 // Print error message about missing string.
 unsafe extern "C" fn nostring(printopt: &str) {
-    let mut parg: PARG = parg {
-        p_string: None,
-    };
-    parg.p_string = Some(printopt.to_string());
+    //let mut parg: PARG = parg {
+    //    p_string: 0 as *const std::ffi::c_char,
+    //};
+    //parg.p_string = Some(printopt.to_string());
     error(
         b"Value is required after %s\0" as *const u8 as *const std::ffi::c_char,
-        &mut parg,
+        // TODO should be &mut parg, to be fixed when PARG is properly implemented
+        0 as *mut std::ffi::c_void as *mut PARG,
     );
 }
 
 // Printe error message if a STRING type option is not followed by a string
 #[no_mangle]
 pub unsafe extern "C" fn nopendopt() {
-    nostring(opt_desc(pendopt));
+    nostring(&opt_desc(&pendopt.clone().unwrap()));
 }
 
 /// Scan to end of string or to an END_OPTION_STRING character.
@@ -550,11 +512,11 @@ pub unsafe extern "C" fn nopendopt() {
 ///   "d" one or more digits
 ///   "," comma-separated digit strings allowed
 ///   "s" space terminates the argument
-unsafe fn optstring(
-    s: &str,
-    printopt: &str,
-    validchars: Option<&str>,
-) -> Option<(String, &str)> {
+unsafe fn optstring<'a>(
+    s: &'a str,
+    printopt: &'a str,
+    validchars: Option<&'a str>,
+) -> Option<(String, &'a str)> {
     if s.is_empty() {
         nostring(printopt);
         return None;
@@ -640,11 +602,15 @@ unsafe fn num_error(printopt: Option<&str>, errp: Option<&mut bool>, overflow: b
 
     if let Some(opt) = printopt {
         if overflow {
-            error(b"Number too large in '%s'" as *const u8 as *const std::ffi::c_char,
-                0 as *mut std::ffi::c_void as *mut PARG);
+            error(
+                b"Number too large in '%s'" as *const u8 as *const std::ffi::c_char,
+                0 as *mut std::ffi::c_void as *mut PARG,
+            );
         } else {
-            error(b"Number number is required after %s" as *const u8 as *const std::ffi::c_char,
-                0 as *mut std::ffi::c_void as *mut PARG);
+            error(
+                b"Number number is required after %s" as *const u8 as *const std::ffi::c_char,
+                0 as *mut std::ffi::c_void as *mut PARG,
+            );
         }
     }
 
@@ -655,47 +621,24 @@ unsafe fn num_error(printopt: Option<&str>, errp: Option<&mut bool>, overflow: b
 /// Like atoi(), but takes a pointer to a char *, and updates
 /// the char * to point after the translated number.
 #[no_mangle]
-fn getnumc(
-    sp: &mut &str,
-    printopt: Option<&str>,
-    errp: Option<&mut bool>,
-) -> Option<i64> {
-    let mut s = sp.trim_start();
+pub fn getnumc<'a>(s: &'a str, printopt: Option<&'a str>) -> (Option<i64>, &'a str) {
+    let mut s = s.trim_start();
 
-    let (num, rest) = str_to_int(s);
-    // TODO check for overflow
-    //if overflow {
-    //    return num_error(printopt, errp, true);
-    //}
-
-    *sp = rest;
-
-    if let Some(err) = errp {
-        *err = false;
-    }
-    num
+    // TODO proper error handling
+    str_to_int(s)
 }
 
 #[no_mangle]
-fn getnum(
-    sp: &mut &str,
-    printopt: Option<&str>,
-    errp: Option<&mut bool>,
-) -> Option<i64> {
-    getnumc(sp, printopt, errp)
+fn getnum<'a>(sp: &'a mut &str, printopt: Option<&'a str>) -> (Option<i64>, &'a str) {
+    getnumc(sp, printopt)
 }
-
 
 /// Translate a string into a fraction, represented by the part of a
 /// number which would follow a decimal point.
 /// The value of the fraction is returned as parts per NUM_FRAC_DENOM.
 /// That is, if "n" is returned, the fraction intended is n/NUM_FRAC_DENOM.
 #[no_mangle]
-unsafe fn getfraction(
-    sp: &mut &str,
-    printopt: Option<&str>,
-    errp: Option<&mut bool>,
-) -> i64 {
+pub unsafe fn getfraction(sp: &mut &str, printopt: Option<&str>, errp: Option<&mut bool>) -> i64 {
     let mut s = sp.trim_start();
     let mut frac: i64 = 0;
     let mut fraclen: usize = 0;
@@ -738,11 +681,12 @@ pub unsafe extern "C" fn init_unsupport() {
     if ss.is_err() {
         return;
     }
-    let mut s = ss.unwrap().as_str();
+    let mut s = ss.unwrap();
+    let mut s = s.as_str();
 
     let mut chars = s.chars();
     loop {
-        let mut opt: Option<LOption> = None;
+        let mut opt: Option<&mut LOption> = None;
         s = s.trim_start();
         if s.is_empty() {
             break;
@@ -750,17 +694,17 @@ pub unsafe extern "C" fn init_unsupport() {
         if s == "-" {
             break;
         }
-        if s starts_with("-") {
-            s = s[1..];
-            opt = findopt_name(&mut s, 0 as *mut *const std::ffi::c_char, 0 as *mut lbool);
+        if s.starts_with("-") {
+            s = &s[1..];
+            (opt, _) = findopt_name(&mut s, None);
         } else {
-            opt = findopt(s.get(0));
-            if !opt.is_null() {
-                s = s[1..];
+            opt = findopt(s.chars().next().unwrap());
+            if !opt.is_none() {
+                s = &s[1..];
             }
         }
-        if !opt.is_null() {
-            opt.otype |= O_UNSUPPORTED;
+        if !opt.is_none() {
+            opt.unwrap().otype |= OptFlags::UNSUPPORTED;
         }
     }
 }
@@ -772,9 +716,5 @@ pub unsafe extern "C" fn get_quit_at_eof() -> std::ffi::c_int {
         return quit_at_eof;
     }
     // When less_is_more is set, the -e flag semantics are different.
-    return if quit_at_eof != 0 {
-        OPT_ONPLUS
-    } else {
-        OPT_ON
-    };
+    return if quit_at_eof != 0 { OPT_ONPLUS } else { OPT_ON };
 }
