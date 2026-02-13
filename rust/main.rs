@@ -7,6 +7,7 @@ use crate::ifile::{IFile, IFileHandle, IFileManager};
 use crate::line::init_line;
 use crate::mark::Marks;
 use crate::optfunc::opt_header;
+use crate::opttbl::get_options;
 use std::env;
 use std::ffi::CString;
 extern "C" {
@@ -73,14 +74,8 @@ extern "C" {
     fn close_getchr();
     static mut tags: *mut std::ffi::c_char;
     static mut tagoption: *mut std::ffi::c_char;
-    static mut jump_sline: std::ffi::c_int;
-    static mut less_is_more: std::ffi::c_int;
     static mut missing_cap: lbool;
-    static mut know_dumb: std::ffi::c_int;
-    static mut quit_if_one_screen: std::ffi::c_int;
-    static mut no_init: std::ffi::c_int;
     static mut errmsgs: std::ffi::c_int;
-    static mut redraw_on_quit: std::ffi::c_int;
     static mut term_init_done: std::ffi::c_int;
     static mut first_time: lbool;
 }
@@ -405,11 +400,13 @@ unsafe fn main_0() -> i32 {
     ) == 0 as std::ffi::c_int
         && lgetenv("LESS_IS_MORE").is_err()
     {
-        less_is_more = 1;
+        let opts = get_options();
+        opts.less_is_more = 1;
     }
     init_prompt();
     init_unsupport();
-    let ss = lgetenv(if less_is_more != 0 { "MORE" } else { "LESS" });
+    let opts = get_options();
+    let ss = lgetenv(if opts.less_is_more != 0 { "MORE" } else { "LESS" });
     if ss.is_err() {
         scan_option(s, LTRUE);
     } else {
@@ -471,7 +468,8 @@ unsafe fn main_0() -> i32 {
         }
         quit(0 as std::ffi::c_int);
     }
-    if missing_cap as std::ffi::c_uint != 0 && know_dumb == 0 {
+    let opts = get_options();
+    if missing_cap as std::ffi::c_uint != 0 && opts.know_dumb == 0 {
         error(
             b"WARNING: terminal is not fully functional\0" as *const u8 as *const std::ffi::c_char,
             0 as *mut std::ffi::c_void as *mut PARG,
@@ -499,15 +497,17 @@ unsafe fn main_0() -> i32 {
         if initial_scrpos.pos == -(1 as std::ffi::c_int) as POSITION {
             quit(1 as std::ffi::c_int);
         }
-        initial_scrpos.ln = jump_sline;
+        let opts = get_options();
+        initial_scrpos.ln = opts.jump_sline;
     } else {
         if edit_first(&mut ifiles) != 0 {
             quit(1);
         }
-        if quit_if_one_screen != 0 {
+        let opts = get_options();
+        if opts.quit_if_one_screen != 0 {
             if nifile() > 1 as std::ffi::c_int {
-                quit_if_one_screen = LFALSE as std::ffi::c_int;
-            } else if no_init == 0 {
+                get_options().quit_if_one_screen = LFALSE as std::ffi::c_int;
+            } else if opts.no_init == 0 {
                 one_screen = get_one_screen() as std::ffi::c_int;
             }
         }
@@ -615,7 +615,8 @@ pub unsafe extern "C" fn quit(mut status: std::ffi::c_int) {
     }
     deinit();
     flush();
-    if redraw_on_quit != 0 && term_init_done != 0 {
+    let opts = get_options();
+    if opts.redraw_on_quit != 0 && term_init_done != 0 {
         first_time = LTRUE;
         repaint();
         flush();

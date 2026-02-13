@@ -7,6 +7,7 @@ use crate::ifile::IFileHandle;
 use crate::line::{set_color_map, NUM_SEARCH_COLORS};
 use crate::main::secure_allow;
 use crate::option::{getfraction, getnumc};
+use crate::opttbl::get_options;
 use std::ffi::{CStr, CString};
 
 extern "C" {
@@ -64,10 +65,7 @@ extern "C" {
     fn tagsearch() -> POSITION;
     fn edit_tagfile() -> std::ffi::c_int;
     fn default_wheel_lines() -> std::ffi::c_int;
-    static mut bufspace: std::ffi::c_int;
-    static mut pr_type: i32;
     static mut plusoption: bool;
-    static mut swindow: std::ffi::c_int;
     static mut sc_width: std::ffi::c_int;
     static mut sc_height: std::ffi::c_int;
     static mut dohelp: std::ffi::c_int;
@@ -80,32 +78,9 @@ extern "C" {
     static mut every_first_cmd: String;
     static mut curr_ifile: Option<IFileHandle>;
     static mut version: [std::ffi::c_char; 0];
-    static mut jump_sline: std::ffi::c_int;
-    static mut jump_sline_fraction: std::ffi::c_long;
-    static mut shift_count: std::ffi::c_int;
-    static mut shift_count_fraction: std::ffi::c_long;
-    static mut match_shift: std::ffi::c_int;
-    static mut match_shift_fraction: std::ffi::c_long;
-    static mut rscroll_char: char;
-    static mut rscroll_attr: std::ffi::c_int;
-    static mut mousecap: std::ffi::c_int;
-    static mut wheel_lines: std::ffi::c_int;
-    static mut less_is_more: std::ffi::c_int;
-    static mut linenum_width: std::ffi::c_int;
-    static mut status_col_width: std::ffi::c_int;
-    static mut use_color: std::ffi::c_int;
-    static mut want_filesize: std::ffi::c_int;
-    static mut header_lines: std::ffi::c_int;
-    static mut header_cols: std::ffi::c_int;
-    static mut def_search_type: std::ffi::c_int;
-    static mut chopline: std::ffi::c_int;
     static mut tabstops: [i32; 0];
     static mut ntabstops: std::ffi::c_int;
     static mut tabdefault: std::ffi::c_int;
-    static mut no_paste: std::ffi::c_int;
-    static mut intr_char: char;
-    static mut nosearch_header_lines: std::ffi::c_int;
-    static mut nosearch_header_cols: std::ffi::c_int;
     static mut header_start_pos: POSITION;
     static mut init_header: String;
     static mut namelogfile: Option<String>;
@@ -264,18 +239,19 @@ unsafe extern "C" fn query_fraction(value: i32, fraction: i64, int_msg: &str, fr
  */
 #[no_mangle]
 pub unsafe fn opt_j(mut ty: i32, s: &str) {
+    let opts = get_options();
     match ty {
         INIT | TOGGLE => {
             let res = toggle_fraction(s, Some("j"), Some(calc_jump_sline));
             if let Some((js, jsf)) = res {
-                jump_sline = js;
-                jump_sline_fraction = jsf;
+                opts.jump_sline = js;
+                opts.jump_sline_fraction = jsf;
             }
         }
         QUERY => {
             query_fraction(
-                jump_sline,
-                jump_sline_fraction,
+                opts.jump_sline,
+                opts.jump_sline_fraction,
                 "Position target at screen line %d",
                 "Position target at screen position %s",
             );
@@ -286,15 +262,16 @@ pub unsafe fn opt_j(mut ty: i32, s: &str) {
 
 #[no_mangle]
 pub unsafe fn calc_jump_sline() {
-    if jump_sline_fraction >= 0 {
-        jump_sline = umuldiv(
+    let opts = get_options();
+    if opts.jump_sline_fraction >= 0 {
+        opts.jump_sline = umuldiv(
             sc_height as uintmax,
-            jump_sline_fraction as uintmax,
+            opts.jump_sline_fraction as uintmax,
             1000000 as std::ffi::c_int as uintmax,
         ) as std::ffi::c_int;
     }
-    if jump_sline <= header_lines {
-        jump_sline = header_lines + 1;
+    if opts.jump_sline <= opts.header_lines {
+        opts.jump_sline = opts.header_lines + 1;
     }
 }
 
@@ -303,18 +280,19 @@ pub unsafe fn calc_jump_sline() {
  */
 #[no_mangle]
 pub unsafe fn opt_shift(ty: i32, s: &str) {
+    let opts = get_options();
     match ty {
         INIT | TOGGLE => {
             let res = toggle_fraction(s, Some("#"), Some(calc_shift_count));
             if let Some((sc, scf)) = res {
-                shift_count = sc;
-                shift_count_fraction = scf;
+                opts.shift_count = sc;
+                opts.shift_count_fraction = scf;
             }
         }
         QUERY => {
             query_fraction(
-                shift_count,
-                shift_count_fraction,
+                opts.shift_count,
+                opts.shift_count_fraction,
                 "Horizontal shift %d columns",
                 "Horizontal shift %s of screen width",
             );
@@ -325,12 +303,13 @@ pub unsafe fn opt_shift(ty: i32, s: &str) {
 
 #[no_mangle]
 pub unsafe fn calc_shift_count() {
-    if shift_count_fraction < 0 {
+    let opts = get_options();
+    if opts.shift_count_fraction < 0 {
         return;
     }
-    shift_count = umuldiv(
+    opts.shift_count = umuldiv(
         sc_width as uintmax,
-        shift_count_fraction as uintmax,
+        opts.shift_count_fraction as uintmax,
         1000000 as std::ffi::c_int as uintmax,
     ) as std::ffi::c_int;
 }
@@ -445,7 +424,8 @@ pub unsafe fn opt_t(ty: i32, s: &str) {
                     reedit_ifile(save_ifile);
                 } else {
                     unsave_ifile(save_ifile);
-                    jump_loc(pos, jump_sline);
+                    let opts = get_options();
+                    jump_loc(pos, opts.jump_sline);
                 }
             }
         }
@@ -495,7 +475,8 @@ pub unsafe fn opt_p(ty: i32, s: &str) {
             /*
              * Unget a command for the specified string.
              */
-            if less_is_more != 0 {
+            let opts = get_options();
+            if opts.less_is_more != 0 {
                 /*
                  * In "more" mode, the -p argument is a command,
                  * not a search string, so we don't need a slash.
@@ -560,7 +541,8 @@ pub unsafe fn opt__P(ty: i32, s: &str) {
             }
         }
         QUERY => {
-            parg.p_string = CString::new(prproto[pr_type as usize].clone())
+            let opts = get_options();
+            parg.p_string = CString::new(prproto[opts.pr_type as usize].clone())
                 .unwrap()
                 .as_ptr();
             error(b"%s\0" as *const u8 as *const std::ffi::c_char, &mut parg);
@@ -579,7 +561,8 @@ pub unsafe fn opt_b(ty: i32, s: &str) {
             /*
              * Set the new number of buffers.
              */
-            ch_setbufspace(bufspace as ssize_t);
+            let opts = get_options();
+            ch_setbufspace(opts.bufspace as ssize_t);
         }
         QUERY | _ => {}
     };
@@ -708,7 +691,8 @@ pub unsafe fn opt_D(ty: i32, s: &str) {
                 );
                 return;
             }
-            if use_color == 0 && attr & AT_COLOR != 0 {
+            let opts = get_options();
+            if opts.use_color == 0 && attr & AT_COLOR != 0 {
                 error(
                     b"Set --use-color before changing colors\0" as *const u8
                         as *const std::ffi::c_char,
@@ -867,29 +851,31 @@ pub unsafe fn opt_rscroll(mut ty: i32, s: &str) {
         INIT | TOGGLE => {
             let (fmt, attr) = setfmt(Some(s.to_owned()), "*s>", false);
 
+            let opts = get_options();
             if fmt == "-" {
-                rscroll_char = 0 as char;
+                opts.rscroll_char = 0 as i32;
             } else {
-                rscroll_attr = attr | AT_COLOR_RSCROLL;
+                opts.rscroll_attr = attr | AT_COLOR_RSCROLL;
                 if fmt.len() == 0 {
-                    rscroll_char = '>';
+                    opts.rscroll_char = '>' as i32;
                 } else {
                     let (mut ch, _) = step_charc(&fmt.as_bytes(), 1, 0, fmt.len());
-                    if pwidth(ch as i32, rscroll_attr, 0, 0) > 1 {
+                    if pwidth(ch as i32, opts.rscroll_attr, 0, 0) > 1 {
                         error(
                             b"cannot set rscroll to a wide character\0" as *const u8
                                 as *const std::ffi::c_char,
                             0 as *mut std::ffi::c_void as *mut PARG,
                         );
                     } else {
-                        rscroll_char = ch;
+                        opts.rscroll_char = ch as i32;
                     }
                 }
             }
         }
         QUERY => {
-            p.p_string = if rscroll_char != 0 as char {
-                prchar(rscroll_char as i32)
+            let opts = get_options();
+            p.p_string = if opts.rscroll_char != 0 as i32 {
+                prchar(opts.rscroll_char as i32)
             } else {
                 b"-\0" as *const u8 as *const std::ffi::c_char
             };
@@ -924,18 +910,19 @@ pub unsafe fn opt_query(mut ty: i32, s: &str) {
 
 #[no_mangle]
 pub unsafe fn opt_match_shift(ty: i32, s: &str) {
+    let opts = get_options();
     match ty {
         INIT | TOGGLE => {
             let res = toggle_fraction(s, Some("--match-shift"), Some(calc_match_shift));
             if let Some((ms, msf)) = res {
-                match_shift = ms;
-                match_shift_fraction = msf;
+                opts.match_shift = ms;
+                opts.match_shift_fraction = msf;
             }
         }
         QUERY => {
             query_fraction(
-                match_shift,
-                match_shift_fraction,
+                opts.match_shift,
+                opts.match_shift_fraction,
                 "Search match shift is %d",
                 "Search match shift is %s of screen width",
             );
@@ -946,12 +933,13 @@ pub unsafe fn opt_match_shift(ty: i32, s: &str) {
 
 #[no_mangle]
 pub unsafe fn calc_match_shift() {
-    if match_shift_fraction < 0 as std::ffi::c_int as std::ffi::c_long {
+    let opts = get_options();
+    if opts.match_shift_fraction < 0 as std::ffi::c_int as std::ffi::c_long {
         return;
     }
-    match_shift = umuldiv(
+    opts.match_shift = umuldiv(
         sc_width as uintmax,
-        match_shift_fraction as uintmax,
+        opts.match_shift_fraction as uintmax,
         1000000 as std::ffi::c_int as uintmax,
     ) as std::ffi::c_int;
 }
@@ -961,9 +949,10 @@ pub unsafe fn calc_match_shift() {
  */
 #[no_mangle]
 pub unsafe fn opt_mousecap(ty: i32, s: &str) {
+    let opts = get_options();
     match ty {
         TOGGLE => {
-            if mousecap == 0 {
+            if opts.mousecap == 0 {
                 deinit_mouse();
             } else {
                 init_mouse();
@@ -978,10 +967,11 @@ pub unsafe fn opt_mousecap(ty: i32, s: &str) {
  */
 #[no_mangle]
 pub unsafe fn opt_wheel_lines(ty: i32, s: &str) {
+    let opts = get_options();
     match ty {
         INIT | TOGGLE => {
-            if wheel_lines <= 0 {
-                wheel_lines = default_wheel_lines();
+            if opts.wheel_lines <= 0 {
+                opts.wheel_lines = default_wheel_lines();
             }
         }
         QUERY | _ => {}
@@ -996,16 +986,17 @@ pub unsafe fn opt_linenum_width(ty: i32, s: &str) {
     let mut parg: PARG = parg {
         p_string: 0 as *const std::ffi::c_char,
     };
+    let opts = get_options();
     match ty {
         INIT | TOGGLE => {
-            if linenum_width > MAX_LINENUM_WIDTH {
+            if opts.linenum_width > MAX_LINENUM_WIDTH {
                 parg.p_int = 16;
                 error(
                     b"Line number width must not be larger than %d\0" as *const u8
                         as *const std::ffi::c_char,
                     &mut parg,
                 );
-                linenum_width = MIN_LINENUM_WIDTH;
+                opts.linenum_width = MIN_LINENUM_WIDTH;
             }
         }
         QUERY | _ => {}
@@ -1020,16 +1011,17 @@ pub unsafe fn opt_status_col_width(ty: i32, s: &str) {
     let mut parg: PARG = parg {
         p_string: 0 as *const std::ffi::c_char,
     };
+    let opts = get_options();
     match ty {
         INIT | TOGGLE => {
-            if status_col_width > MAX_STATUSCOL_WIDTH {
+            if opts.status_col_width > MAX_STATUSCOL_WIDTH {
                 parg.p_int = MAX_STATUSCOL_WIDTH;
                 error(
                     b"Status column width must not be larger than %d\0" as *const u8
                         as *const std::ffi::c_char,
                     &mut parg,
                 );
-                status_col_width = 2;
+                opts.status_col_width = 2;
             }
         }
         QUERY | _ => {}
@@ -1041,9 +1033,10 @@ pub unsafe fn opt_status_col_width(ty: i32, s: &str) {
  */
 #[no_mangle]
 pub unsafe fn opt_filesize(mut ty: i32, s: &str) {
+    let opts = get_options();
     match ty {
         INIT | TOGGLE => {
-            if want_filesize != 0 && !curr_ifile.is_none() && ch_length() == NULL_POSITION {
+            if opts.want_filesize != 0 && !curr_ifile.is_none() && ch_length() == NULL_POSITION {
                 scan_eof();
             }
         }
@@ -1059,14 +1052,15 @@ pub unsafe fn opt_intr(mut ty: i32, s: &str) {
     let mut p: PARG = parg {
         p_string: 0 as *const std::ffi::c_char,
     };
+    let opts = get_options();
     match ty {
         INIT | TOGGLE => {
             if s.starts_with("^") && s.len() > 1 {
-                intr_char = (s.chars().nth(1).unwrap() as u8 & 0o37) as char;
+                opts.intr_char = s.chars().nth(1).unwrap() as u8 & 0o37;
             }
         }
         QUERY => {
-            p.p_string = prchar(intr_char as LWCHAR);
+            p.p_string = prchar(opts.intr_char as LWCHAR);
             error(
                 b"interrupt character is %s\0" as *const u8 as *const std::ffi::c_char,
                 &mut p,
@@ -1155,6 +1149,7 @@ unsafe extern "C" fn parse_header(s: &str) -> Option<(i64, i64, i64)> {
  */
 #[no_mangle]
 pub unsafe fn opt_header(mut ty: i32, s: &str) {
+    let opts = get_options();
     match ty {
         INIT => {
             /* Can't call parse_header now because input file is not yet opened,
@@ -1162,15 +1157,15 @@ pub unsafe fn opt_header(mut ty: i32, s: &str) {
             init_header = String::from(s);
         }
         TOGGLE => {
-            let mut lines = header_lines;
-            let mut cols = header_cols;
+            let mut lines = opts.header_lines;
+            let mut cols = opts.header_cols;
             let mut start_pos = if ty == 0 { 0 } else { position(TOP) };
             if start_pos == NULL_POSITION {
                 start_pos = 0;
             }
             if parse_header(s).is_none() {
-                header_lines = lines;
-                header_cols = cols;
+                opts.header_lines = lines;
+                opts.header_cols = cols;
                 set_header(start_pos);
                 calc_jump_sline();
             }
@@ -1184,8 +1179,8 @@ pub unsafe fn opt_header(mut ty: i32, s: &str) {
                 buf.as_mut_ptr(),
                 ::core::mem::size_of::<[std::ffi::c_char; 66]>() as std::ffi::c_ulong,
                 b"%ld,%ld,%ld\0" as *const u8 as *const std::ffi::c_char,
-                header_lines as std::ffi::c_long,
-                header_cols as std::ffi::c_long,
+                opts.header_lines as std::ffi::c_long,
+                opts.header_cols as std::ffi::c_long,
                 find_linenum(header_start_pos),
             );
             parg.p_string = buf.as_mut_ptr();
@@ -1216,6 +1211,7 @@ pub unsafe fn opt_search_type(ty: i32, s: &str) {
     let mut buf = String::new();
     let mut bp: *mut std::ffi::c_char = 0 as *mut std::ffi::c_char;
     let mut i = 0;
+    let opts = get_options();
     match ty {
         INIT | TOGGLE => {
             st = 0;
@@ -1250,29 +1246,29 @@ pub unsafe fn opt_search_type(ty: i32, s: &str) {
                     }
                 }
             }
-            def_search_type = norm_search_type(st);
+            opts.def_search_type = norm_search_type(st);
         }
         QUERY => {
-            if def_search_type & SRCH_PAST_EOF != 0 {
+            if opts.def_search_type & SRCH_PAST_EOF != 0 {
                 buf.push('E');
             }
-            if def_search_type & SRCH_FIRST_FILE != 0 {
+            if opts.def_search_type & SRCH_FIRST_FILE != 0 {
                 buf.push('F');
             }
-            if def_search_type & SRCH_NO_MOVE != 0 {
+            if opts.def_search_type & SRCH_NO_MOVE != 0 {
                 buf.push('K');
             }
-            if def_search_type & SRCH_NO_MATCH != 0 {
+            if opts.def_search_type & SRCH_NO_MATCH != 0 {
                 buf.push('N');
             }
-            if def_search_type & SRCH_NO_REGEX != 0 {
+            if opts.def_search_type & SRCH_NO_REGEX != 0 {
                 buf.push('R');
             }
-            if def_search_type & SRCH_WRAP != 0 {
+            if opts.def_search_type & SRCH_WRAP != 0 {
                 buf.push('W');
             }
             for i in 1..=NUM_SEARCH_COLORS {
-                if def_search_type & srch_subsearch(i) != 0 {
+                if opts.def_search_type & srch_subsearch(i) != 0 {
                     buf.push(('0' as u8 + i as u8) as char);
                 }
             }
@@ -1295,10 +1291,11 @@ unsafe extern "C" fn do_nosearch_headers(
     mut no_header_cols: std::ffi::c_int,
 ) {
     let mut current_block_8: u64;
+    let opts = get_options();
     match type_0 {
         0 | 2 => {
-            nosearch_header_lines = no_header_lines;
-            nosearch_header_cols = no_header_cols;
+            opts.nosearch_header_lines = no_header_lines;
+            opts.nosearch_header_cols = no_header_cols;
             if type_0 != 2 as std::ffi::c_int {
                 current_block_8 = 13109137661213826276;
             } else {
@@ -1314,19 +1311,19 @@ unsafe extern "C" fn do_nosearch_headers(
     }
     match current_block_8 {
         4311149068773253642 => {
-            if nosearch_header_lines != 0 && nosearch_header_cols != 0 {
+            if opts.nosearch_header_lines != 0 && opts.nosearch_header_cols != 0 {
                 error(
                     b"Search does not include header lines or columns\0" as *const u8
                         as *const std::ffi::c_char,
                     0 as *mut std::ffi::c_void as *mut PARG,
                 );
-            } else if nosearch_header_lines != 0 {
+            } else if opts.nosearch_header_lines != 0 {
                 error(
                     b"Search includes header columns but not header lines\0" as *const u8
                         as *const std::ffi::c_char,
                     0 as *mut std::ffi::c_void as *mut PARG,
                 );
-            } else if nosearch_header_cols != 0 {
+            } else if opts.nosearch_header_cols != 0 {
                 error(
                     b"Search includes header lines but not header columns\0" as *const u8
                         as *const std::ffi::c_char,
@@ -1361,9 +1358,10 @@ pub unsafe extern "C" fn opt_nosearch_header_cols(ty: i32, s: &str) {
 
 #[no_mangle]
 pub unsafe fn opt_no_paste(ty: i32, s: &str) {
+    let opts = get_options();
     match ty {
         TOGGLE => {
-            if no_paste != 0 {
+            if opts.no_paste != 0 {
                 init_bracketed_paste();
             } else {
                 deinit_bracketed_paste();
@@ -1375,7 +1373,8 @@ pub unsafe fn opt_no_paste(ty: i32, s: &str) {
 
 #[no_mangle]
 pub unsafe extern "C" fn chop_line() -> bool {
-    chopline != 0 || header_cols > 0 || header_lines > 0
+    let opts = get_options();
+    opts.chopline != 0 || opts.header_cols > 0 || opts.header_lines > 0
 }
 
 /*
@@ -1383,8 +1382,9 @@ pub unsafe extern "C" fn chop_line() -> bool {
  */
 #[no_mangle]
 pub unsafe extern "C" fn get_swindow() -> i32 {
-    if swindow > 0 {
-        return swindow;
+    let opts = get_options();
+    if opts.swindow > 0 {
+        return opts.swindow;
     }
-    return sc_height - header_lines + swindow;
+    return sc_height - opts.header_lines + opts.swindow;
 }

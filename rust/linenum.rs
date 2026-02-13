@@ -1,5 +1,6 @@
 use crate::defs::*;
 use crate::line::forw_raw_line;
+use crate::opttbl::get_options;
 
 extern "C" {
     fn ch_seek(pos: POSITION) -> std::ffi::c_int;
@@ -14,12 +15,10 @@ extern "C" {
     fn error(fmt: *const std::ffi::c_char, parg: *mut PARG);
     fn ierror(fmt: *const std::ffi::c_char, parg: *mut PARG);
     fn position(sindex: std::ffi::c_int) -> POSITION;
-    static mut linenums: std::ffi::c_int;
     static mut sigs: std::ffi::c_int;
     static mut sc_height: std::ffi::c_int;
-    static mut header_lines: std::ffi::c_int;
-    static mut nonum_headers: std::ffi::c_int;
     static mut header_start_pos: POSITION;
+    static mut header_end_pos: POSITION;
 }
 #[derive(Copy, Clone)]
 #[repr(C)]
@@ -170,10 +169,11 @@ unsafe extern "C" fn abort_delayed_msg(mut dmsg: *mut delayed_msg) {
     if (*dmsg).loopcount >= 0 as std::ffi::c_int {
         return;
     }
-    if linenums == 2 as std::ffi::c_int {
+    let opts = get_options();
+    if opts.linenums == 2 as std::ffi::c_int {
         screen_trashed();
     }
-    linenums = 0 as std::ffi::c_int;
+    opts.linenums = 0 as std::ffi::c_int;
     error(
         b"Line numbers turned off\0" as *const u8 as *const std::ffi::c_char,
         0 as *mut std::ffi::c_void as *mut PARG,
@@ -194,7 +194,8 @@ pub unsafe extern "C" fn find_linenum(mut pos: POSITION) -> LINENUM {
         loopcount: 0,
         startime: 0,
     };
-    if linenums == 0 {
+    let opts = get_options();
+    if opts.linenums == 0 {
         return 0 as std::ffi::c_int as LINENUM;
     }
     if pos == -(1 as std::ffi::c_int) as POSITION {
@@ -400,10 +401,11 @@ pub unsafe extern "C" fn scan_eof() {
 }
 #[no_mangle]
 pub unsafe extern "C" fn vlinenum(mut linenum: LINENUM) -> LINENUM {
-    if nonum_headers != 0 && header_lines > 0 as std::ffi::c_int {
+    let opts = get_options();
+    if opts.nonum_headers != 0 && opts.header_lines > 0 as std::ffi::c_int {
         let mut header_start_line: LINENUM = find_linenum(header_start_pos);
         if header_start_line != 0 as std::ffi::c_int as LINENUM {
-            let mut header_end_line: LINENUM = header_start_line + header_lines as LINENUM;
+            let mut header_end_line: LINENUM = header_start_line + opts.header_lines as LINENUM;
             linenum = if linenum < header_end_line {
                 0 as std::ffi::c_int as LINENUM
             } else {

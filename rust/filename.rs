@@ -1,9 +1,10 @@
 use crate::ch::FileState;
-use crate::charset::{binary_char, is_utf8_well_formed, step_charc, utf_skip_to_lead};
+use crate::charset::{binary_char, is_utf8_well_formed, step_charc, utf_skip_to_lead, utf_mode};
 use crate::decode::lgetenv;
 use crate::defs::*;
 use crate::ifile::{IFileHandle, IFileManager};
 use crate::line::{ansi_start, skip_ansi};
+use crate::opttbl::get_options;
 use crate::xbuf::XBuffer;
 use ::c2rust_bitfields;
 use std::env;
@@ -64,10 +65,6 @@ extern "C" {
     fn error(fmt: *const std::ffi::c_char, parg: *mut PARG);
     fn stat(__file: *const std::ffi::c_char, __buf: *mut stat) -> std::ffi::c_int;
     fn fstat(__fd: std::ffi::c_int, __buf: *mut stat) -> std::ffi::c_int;
-    static mut force_open: bool;
-    static mut use_lessopen: std::ffi::c_int;
-    static mut ctldisp: std::ffi::c_int;
-    static mut utf_mode: bool;
     static mut curr_ifile: Option<IFileHandle>;
     static mut old_ifile: Option<IFileHandle>;
     static mut openquote: char;
@@ -490,6 +487,7 @@ pub unsafe fn bin_file(file: &mut File) -> Option<(bool, usize)> {
     let mut pos = 0;
 
     while pos < bytes_read {
+        let opts = get_options();
         if utf_mode && !is_utf8_well_formed(&data[pos..], data.len() - pos) {
             // Not well-formed UTF-8
             bin_count += 1;
@@ -499,7 +497,7 @@ pub unsafe fn bin_file(file: &mut File) -> Option<(bool, usize)> {
             // Try to read a character
             let (c, p) = step_charc(data, 1, 0, bytes_read);
             // Check for ANSI escape sequences
-            if ctldisp == OPT_ONPLUS {
+            if opts.ctldisp == OPT_ONPLUS {
                 if let Some(mut pansi) = ansi_start(c) {
                     pos = skip_ansi(&mut pansi, c, data, bytes_read);
                     continue;
@@ -667,7 +665,8 @@ pub unsafe fn open_altfile(filename: &str) -> AltFileResult {
         return None;
     }
 
-    if use_lessopen == 0 {
+    let opts = get_options();
+    if opts.use_lessopen == 0 {
         return None;
     }
 
@@ -836,9 +835,10 @@ pub fn is_dir<P: AsRef<Path>>(filename: P) -> bool {
 pub unsafe fn bad_file<P: AsRef<Path>>(filename: P) -> Option<String> {
     let path = filename.as_ref();
     let filename_str = path.to_string_lossy();
+    let opts = get_options();
 
     // Check if it's a directory (unless force_open is set)
-    if !force_open && path.is_dir() {
+    if opts.force_open == 0 && path.is_dir() {
         return Some(format!("{} is a directory", filename_str));
     }
 
@@ -849,7 +849,7 @@ pub unsafe fn bad_file<P: AsRef<Path>>(filename: P) -> Option<String> {
             Some(format!("{}: {}", filename_str, e))
         }
         Ok(metadata) => {
-            if force_open {
+            if opts.force_open != 0 {
                 // Force open mode - accept any file type
                 None
             } else if !metadata.is_file() {

@@ -1,5 +1,6 @@
 use crate::defs::*;
 use crate::evar::expand_evars;
+use crate::opttbl::get_options;
 use crate::screen::special_key_str;
 use crate::util::ptr_to_str;
 use crate::xbuf::XBuffer;
@@ -74,7 +75,6 @@ extern "C" {
     static mut erase_char: std::ffi::c_int;
     static mut erase2_char: std::ffi::c_int;
     static mut kill_char: std::ffi::c_int;
-    static mut mousecap: i32;
     static mut sc_height: std::ffi::c_int;
 }
 #[derive(Copy, Clone)]
@@ -775,7 +775,8 @@ pub unsafe extern "C" fn add_sysvar_table(tables: &mut Tables, buf: &mut [u8], l
  * Return action for a mouse wheel down event.
  */
 unsafe extern "C" fn mouse_wheel_down() -> i32 {
-    return if mousecap == OPT_ONPLUS as i32 {
+    let opts = get_options();
+    return if opts.mousecap == OPT_ONPLUS as i32 {
         A_F_MOUSE as i32
     } else {
         A_B_MOUSE as i32
@@ -786,7 +787,8 @@ unsafe extern "C" fn mouse_wheel_down() -> i32 {
  * Return action for a mouse wheel up event.
  */
 unsafe extern "C" fn mouse_wheel_up() -> i32 {
-    return if mousecap == OPT_ONPLUS as i32 {
+    let opts = get_options();
+    return if opts.mousecap == OPT_ONPLUS as i32 {
         A_F_MOUSE as i32
     } else {
         A_B_MOUSE as i32

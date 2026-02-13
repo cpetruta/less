@@ -1,5 +1,6 @@
 use crate::decode::lgetenv;
 use crate::defs::*;
+use crate::opttbl::get_options;
 use ::c2rust_bitfields;
 use std::ffi::CString;
 extern "C" {
@@ -97,9 +98,7 @@ extern "C" {
     fn fchmod(__fd: std::ffi::c_int, __mode: __mode_t) -> std::ffi::c_int;
     static mut sc_width: std::ffi::c_int;
     static mut utf_mode: std::ffi::c_int;
-    static mut no_hist_dups: std::ffi::c_int;
     static mut marks_modified: std::ffi::c_int;
-    static mut no_paste: std::ffi::c_int;
 }
 #[derive(Copy, Clone)]
 #[repr(C)]
@@ -765,7 +764,8 @@ pub unsafe extern "C" fn cmd_addhist(
     if strlen(cmd) == 0 as std::ffi::c_int as std::ffi::c_ulong {
         return;
     }
-    if no_hist_dups != 0 {
+    let opts = get_options();
+    if opts.no_hist_dups != 0 {
         let mut next: *mut mlist = 0 as *mut mlist;
         ml = (*mlist).next;
         while !((*ml).string).is_null() {
@@ -804,6 +804,7 @@ unsafe extern "C" fn cmd_edit(
 ) -> std::ffi::c_int {
     let mut action: std::ffi::c_int = 0;
     let mut flags: std::ffi::c_int = 0;
+    let opts = get_options();
     flags = 0 as std::ffi::c_int;
     if curr_mlist.is_null() {
         flags |= 0o2 as std::ffi::c_int;
@@ -822,7 +823,7 @@ unsafe extern "C" fn cmd_edit(
     match action {
         101 => return 0 as std::ffi::c_int,
         75 => {
-            if no_paste != 0 {
+            if opts.no_paste != 0 {
                 pasting = LTRUE;
             }
             return 0 as std::ffi::c_int;

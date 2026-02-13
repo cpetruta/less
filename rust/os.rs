@@ -1,5 +1,6 @@
 use crate::decode::lgetenv;
 use crate::defs::*;
+use crate::opttbl::get_options;
 use crate::signal::sigs;
 use std::ffi::CString;
 extern "C" {
@@ -38,12 +39,8 @@ extern "C" {
     fn __errno_location() -> *mut std::ffi::c_int;
     fn poll(__fds: *mut pollfd, __nfds: nfds_t, __timeout: std::ffi::c_int) -> std::ffi::c_int;
     static mut ignore_eoi: std::ffi::c_int;
-    static mut exit_F_on_close: std::ffi::c_int;
-    static mut follow_mode: std::ffi::c_int;
     static mut scanning_eof: std::ffi::c_int;
-    static mut intr_char: std::ffi::c_char;
     static mut is_tty: std::ffi::c_int;
-    static mut quit_if_one_screen: std::ffi::c_int;
     static mut one_screen: std::ffi::c_int;
     static mut less_start_time: time_t;
     static mut tty: std::ffi::c_int;
@@ -133,6 +130,7 @@ unsafe extern "C" fn check_poll(
     mut fd: std::ffi::c_int,
     mut tty_0: std::ffi::c_int,
 ) -> std::ffi::c_int {
+    let opts = get_options();
     let mut poller: [pollfd; 2] = [
         {
             let mut init = pollfd {
@@ -152,7 +150,7 @@ unsafe extern "C" fn check_poll(
         },
     ];
     let mut timeout: std::ffi::c_int = if waiting_for_data as std::ffi::c_uint != 0
-        && !(scanning_eof != 0 && follow_mode == 1 as std::ffi::c_int)
+        && !(scanning_eof != 0 && opts.follow_mode == 1 as std::ffi::c_int)
     {
         -(1 as std::ffi::c_int)
     } else if ignore_eoi != 0 && waiting_for_data as u64 == 0 {
@@ -173,14 +171,14 @@ unsafe extern "C" fn check_poll(
         != 0
     {
         let mut ch: std::ffi::c_int = getchr();
-        if ch < 0 as std::ffi::c_int || ch == intr_char as std::ffi::c_int {
+        if ch < 0 as std::ffi::c_int || ch == opts.intr_char as std::ffi::c_int {
             return -(2 as std::ffi::c_int);
         }
         ungetcc_back(ch as std::ffi::c_char);
         return -(2 as std::ffi::c_int);
     }
     if ignore_eoi != 0
-        && exit_F_on_close != 0
+        && opts.exit_F_on_close != 0
         && poller[0 as std::ffi::c_int as usize].revents as std::ffi::c_int
             & (0x10 as std::ffi::c_int | 0x1 as std::ffi::c_int)
             == 0x10 as std::ffi::c_int
@@ -225,11 +223,12 @@ pub unsafe extern "C" fn iread(
         }
         flush();
         reading = LTRUE;
+        let opts = get_options();
         if is_tty != 0
             && fd != tty
             && use_poll as std::ffi::c_uint != 0
             && no_poll as u64 == 0
-            && !(quit_if_one_screen != 0 && one_screen != 0)
+            && !(opts.quit_if_one_screen != 0 && one_screen != 0)
         {
             let mut ret: std::ffi::c_int = check_poll(fd, tty);
             if ret != 0 as std::ffi::c_int {

@@ -2,6 +2,7 @@ use crate::defs::*;
 use crate::filename::{open_altfile, AltFileResult};
 use crate::ifile::{IFileHandle, IFileManager, ScrPos};
 use crate::line::forw_raw_line;
+use crate::opttbl::{get_options, Options};
 use ::c2rust_bitfields;
 use glob::glob;
 use std::any::Any;
@@ -63,14 +64,10 @@ extern "C" {
     fn stat(__file: *const std::ffi::c_char, __buf: *mut stat) -> std::ffi::c_int;
     static mut new_file: bool;
     static mut every_first_cmd: *mut std::ffi::c_char;
-    static mut force_open: std::ffi::c_int;
     static mut is_tty: std::ffi::c_int;
     static mut sigs: std::ffi::c_int;
     static mut hshift: std::ffi::c_int;
-    static mut want_filesize: std::ffi::c_int;
     static mut consecutive_nulls: std::ffi::c_int;
-    static mut modelines: std::ffi::c_int;
-    static mut show_preproc_error: std::ffi::c_int;
     static mut curr_ifile: Option<IFileHandle>;
     static mut old_ifile: Option<IFileHandle>;
     static mut initial_scrpos: scrpos;
@@ -81,6 +78,14 @@ extern "C" {
     static mut logfile: std::ffi::c_int;
     static mut force_logfile: std::ffi::c_int;
     static mut namelogfile: Option<String>;
+}
+
+/*
+ * Get the current Options instance
+ */
+#[inline]
+unsafe fn opts() -> &'static mut crate::opttbl::Options {
+    get_options()
 }
 
 #[derive(Copy, Clone)]
@@ -366,7 +371,7 @@ unsafe extern "C" fn check_modeline(line: &str) {
  */
 unsafe extern "C" fn check_modelines() {
     let mut pos = 0;
-    for i in 0..modelines {
+    for i in 0..opts().modelines {
         if abort_sigs() {
             return;
         }
@@ -397,7 +402,7 @@ unsafe extern "C" fn close_pipe(mut pipefd: *mut FILE) {
         free(p as *mut std::ffi::c_void);
         return;
     }
-    if show_preproc_error == 0 {
+    if opts().show_preproc_error == 0 {
         return;
     }
     if status & 0x7f as std::ffi::c_int == 0 as std::ffi::c_int {
@@ -456,7 +461,7 @@ pub unsafe extern "C" fn close_altpipe(ifiles: &mut IFileManager, ifile: Option<
  * May or may not close the pipe.
  */
 pub unsafe extern "C" fn check_altpipe_error(ifiles: &mut IFileManager) {
-    if show_preproc_error == 0 {
+    if opts().show_preproc_error == 0 {
         return;
     }
     if !curr_ifile.is_none() && !(ifiles.get_altfilename(curr_ifile)).is_none() {
@@ -627,7 +632,7 @@ pub unsafe extern "C" fn edit_ifile(ifiles: &mut IFileManager, ifile: Option<IFi
 
                             // Check for binary file using existing helper (expects fd).
                             if bin_file(f, &mut nread) != 0
-                                && force_open == 0
+                                && opts().force_open == 0
                                 && !ifiles.opened(Some(h))
                             {
                                 parg = Parg::String(
@@ -723,7 +728,7 @@ pub unsafe extern "C" fn edit_ifile(ifiles: &mut IFileManager, ifile: Option<IFi
                                     f = rawfd;
                                     chflags |= CH_CANSEEK;
                                     if bin_file(f, &mut nread) != 0
-                                        && force_open == 0
+                                        && opts().force_open == 0
                                         && !ifiles.opened(Some(h))
                                     {
                                         parg = Parg::String(
@@ -796,7 +801,7 @@ pub unsafe extern "C" fn edit_ifile(ifiles: &mut IFileManager, ifile: Option<IFi
         } // else: no existing altpipe
 
         /* If it's a tty and not forced, refuse to open. */
-        if force_open == 0 && f >= 0 && isatty(f) != 0 {
+        if opts().force_open == 0 && f >= 0 && isatty(f) != 0 {
             parg = Parg::String(filename.as_ref().unwrap().to_string_lossy().into_owned());
             error(
                 b"%s is a terminal (use -f to open it)\0" as *const u8 as *const std::ffi::c_char,
@@ -900,7 +905,7 @@ pub unsafe extern "C" fn edit_ifile(ifiles: &mut IFileManager, ifile: Option<IFi
             );
             free(qfilename as *mut std::ffi::c_void);
         }
-        if want_filesize != 0 {
+        if opts().want_filesize != 0 {
             scan_eof();
         }
         set_header(0);

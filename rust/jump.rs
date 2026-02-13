@@ -1,4 +1,5 @@
 use crate::defs::*;
+use crate::opttbl::get_options;
 extern "C" {
     fn home();
     fn bell();
@@ -40,11 +41,8 @@ extern "C" {
     fn sindex_from_sline(sline: std::ffi::c_int) -> std::ffi::c_int;
     fn repaint_hilite(on: lbool);
     fn next_unfiltered(pos: POSITION) -> POSITION;
-    static mut jump_sline: std::ffi::c_int;
     static mut squished: lbool;
     static mut sc_height: std::ffi::c_int;
-    static mut show_attn: std::ffi::c_int;
-    static mut top_scroll: std::ffi::c_int;
     static mut header_start_pos: POSITION;
 }
 #[derive(Copy, Clone)]
@@ -121,14 +119,15 @@ pub unsafe extern "C" fn jump_back(mut linenum: LINENUM) {
     let mut parg: PARG = parg {
         p_string: 0 as *const std::ffi::c_char,
     };
+    let opts = get_options();
     pos = find_pos(linenum);
     if pos != -(1 as std::ffi::c_int) as POSITION && ch_seek(pos) == 0 as std::ffi::c_int {
-        if show_attn != 0 {
+        if opts.show_attn != 0 {
             set_attnpos(pos);
         }
-        jump_loc(pos, jump_sline);
+        jump_loc(pos, opts.jump_sline);
     } else if linenum <= 1 as std::ffi::c_int as LINENUM && ch_beg_seek() == 0 as std::ffi::c_int {
-        jump_loc(ch_tell(), jump_sline);
+        jump_loc(ch_tell(), opts.jump_sline);
         error(
             b"Cannot seek to beginning of file\0" as *const u8 as *const std::ffi::c_char,
             0 as *mut std::ffi::c_void as *mut PARG,
@@ -159,6 +158,7 @@ pub unsafe extern "C" fn jump_percent(
 ) {
     let mut pos: POSITION = 0;
     let mut len: POSITION = 0;
+    let opts = get_options();
     len = ch_length();
     if len == -(1 as std::ffi::c_int) as POSITION {
         ierror(
@@ -179,11 +179,12 @@ pub unsafe extern "C" fn jump_percent(
     if pos >= len {
         pos = len - 1 as std::ffi::c_int as POSITION;
     }
-    jump_line_loc(pos, jump_sline);
+    jump_line_loc(pos, opts.jump_sline);
 }
 #[no_mangle]
 pub unsafe extern "C" fn jump_line_loc(mut pos: POSITION, mut sline: std::ffi::c_int) {
     let mut c: std::ffi::c_int = 0;
+    let opts = get_options();
     if ch_seek(pos) == 0 as std::ffi::c_int {
         loop {
             c = ch_back_get();
@@ -196,7 +197,7 @@ pub unsafe extern "C" fn jump_line_loc(mut pos: POSITION, mut sline: std::ffi::c
         }
         pos = ch_tell();
     }
-    if show_attn != 0 {
+    if opts.show_attn != 0 {
         set_attnpos(pos);
     }
     jump_loc(pos, sline);
@@ -224,6 +225,7 @@ pub unsafe extern "C" fn jump_loc(mut pos: POSITION, mut sline: std::ffi::c_int)
     let mut sindex: std::ffi::c_int = 0;
     let mut tpos: POSITION = 0;
     let mut bpos: POSITION = 0;
+    let opts = get_options();
     pos = after_header_pos(pos);
     pos = next_unfiltered(pos);
     sindex = sindex_from_sline(sline);
@@ -248,7 +250,7 @@ pub unsafe extern "C" fn jump_loc(mut pos: POSITION, mut sline: std::ffi::c_int)
                 LFALSE,
             );
         }
-        if show_attn != 0 {
+        if opts.show_attn != 0 {
             repaint_hilite(LTRUE);
         }
         return;
@@ -274,7 +276,7 @@ pub unsafe extern "C" fn jump_loc(mut pos: POSITION, mut sline: std::ffi::c_int)
                     LFALSE,
                     0 as std::ffi::c_int,
                 );
-                if show_attn != 0 {
+                if opts.show_attn != 0 {
                     repaint_hilite(LTRUE);
                 }
                 return;
@@ -307,7 +309,7 @@ pub unsafe extern "C" fn jump_loc(mut pos: POSITION, mut sline: std::ffi::c_int)
             }
             if linepos >= tpos {
                 back(nline, tpos, LTRUE, LFALSE, LFALSE);
-                if show_attn != 0 {
+                if opts.show_attn != 0 {
                     repaint_hilite(LTRUE);
                 }
                 return;
@@ -316,7 +318,7 @@ pub unsafe extern "C" fn jump_loc(mut pos: POSITION, mut sline: std::ffi::c_int)
         }
         // XXX
         // lastmark();
-        if top_scroll == 0 {
+        if opts.top_scroll == 0 {
             clear();
         } else {
             home();

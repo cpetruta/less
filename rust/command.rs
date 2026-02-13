@@ -1,5 +1,6 @@
 use crate::defs::*;
 use crate::line::load_line;
+use crate::opttbl::get_options;
 use crate::opttbl::Options;
 use std::ffi::CStr;
 
@@ -150,22 +151,14 @@ extern "C" {
     static mut erase2_char: std::ffi::c_int;
     static mut kill_char: std::ffi::c_int;
     static mut sigs: std::ffi::c_int;
-    static mut quit_if_one_screen: std::ffi::c_int;
     static mut one_screen: std::ffi::c_int;
     static mut sc_width: std::ffi::c_int;
     static mut sc_height: std::ffi::c_int;
     static mut kent: *mut std::ffi::c_char;
-    static mut swindow: std::ffi::c_int;
-    static mut jump_sline: std::ffi::c_int;
     static mut quitting: lbool;
     static mut wscroll: std::ffi::c_int;
-    static mut top_scroll: std::ffi::c_int;
     static mut ignore_eoi: std::ffi::c_int;
     static mut hshift: std::ffi::c_int;
-    static mut bs_mode: std::ffi::c_int;
-    static mut proc_backspace: std::ffi::c_int;
-    static mut show_attn: std::ffi::c_int;
-    static mut chopline: std::ffi::c_int;
     static mut highest_hilite: POSITION;
     static mut every_first_cmd: *mut std::ffi::c_char;
     static mut version: [std::ffi::c_char; 0];
@@ -173,20 +166,14 @@ extern "C" {
     static mut curr_ifile: *mut std::ffi::c_void;
     static mut ml_search: *mut std::ffi::c_void;
     static mut ml_examine: *mut std::ffi::c_void;
-    static mut wheel_lines: std::ffi::c_int;
-    static mut def_search_type: std::ffi::c_int;
     static mut search_wrapped: lbool;
     static mut no_poll: lbool;
-    static mut no_paste: std::ffi::c_int;
     static mut pasting: lbool;
-    static mut no_edit_warn: std::ffi::c_int;
     static mut soft_eof: POSITION;
     static mut ml_shell: *mut std::ffi::c_void;
     static mut editproto: *const std::ffi::c_char;
     static mut osc8_uri: *mut std::ffi::c_char;
-    static mut shift_count: std::ffi::c_int;
     static mut forw_prompt: std::ffi::c_int;
-    static mut incr_search: std::ffi::c_int;
     static mut full_screen: std::ffi::c_int;
 }
 #[derive(Copy, Clone)]
@@ -767,7 +754,8 @@ unsafe extern "C" fn mca_char(mut c: std::ffi::c_char) -> std::ffi::c_int {
         _ => {}
     }
     if is_newline_char(c) as u64 != 0 {
-        if pasting as std::ffi::c_uint != 0 && no_paste != 0 {
+        let opts = get_options();
+        if pasting as std::ffi::c_uint != 0 && opts.no_paste != 0 {
             start_ignoring_input();
             return 2 as std::ffi::c_int;
         }
@@ -785,7 +773,8 @@ unsafe extern "C" fn mca_char(mut c: std::ffi::c_char) -> std::ffi::c_int {
             }
         }
         15 | 5 => {
-            if incr_search != 0 {
+            let opts = get_options();
+            if opts.incr_search != 0 {
                 let mut st: std::ffi::c_int = search_type
                     & ((1 as std::ffi::c_int) << 0 as std::ffi::c_int
                         | (1 as std::ffi::c_int) << 1 as std::ffi::c_int
@@ -858,7 +847,8 @@ pub unsafe extern "C" fn is_screen_trashed() -> std::ffi::c_int {
     return screen_trashed_value;
 }
 unsafe extern "C" fn make_display() {
-    if full_screen == 0 && !(quit_if_one_screen != 0 && one_screen != 0) {
+    let opts = get_options();
+    if full_screen == 0 && !(opts.quit_if_one_screen != 0 && one_screen != 0) {
         clear();
     }
     if empty_screen() != 0 {
@@ -868,16 +858,17 @@ unsafe extern "C" fn make_display() {
             jump_loc(initial_scrpos.pos, initial_scrpos.ln);
         }
     } else if is_screen_trashed() != 0 || full_screen == 0 {
-        let mut save_top_scroll: std::ffi::c_int = top_scroll;
+        let opts = get_options();
+        let mut save_top_scroll: std::ffi::c_int = opts.top_scroll;
         let mut save_ignore_eoi: std::ffi::c_int = ignore_eoi;
-        top_scroll = 1 as std::ffi::c_int;
+        opts.top_scroll = 1 as std::ffi::c_int;
         ignore_eoi = 0 as std::ffi::c_int;
         if is_screen_trashed() == 2 as std::ffi::c_int {
             reopen_curr_ifile();
             jump_forw();
         }
         repaint();
-        top_scroll = save_top_scroll;
+        opts.top_scroll = save_top_scroll;
         ignore_eoi = save_ignore_eoi;
     }
 }
@@ -895,14 +886,15 @@ unsafe extern "C" fn prompt(o: &Options) {
     {
         quit(0 as std::ffi::c_int);
     }
-    if quit_if_one_screen != 0
+    let opts = get_options();
+    if opts.quit_if_one_screen != 0
         && entire_file_displayed() as std::ffi::c_uint != 0
         && ch_getflags() & 0o10 as std::ffi::c_int == 0
         && next_ifile(curr_ifile) == 0 as *mut std::ffi::c_void
     {
         quit(0 as std::ffi::c_int);
     }
-    quit_if_one_screen = LFALSE as std::ffi::c_int;
+    opts.quit_if_one_screen = LFALSE as std::ffi::c_int;
     if forw_prompt == 0 {
         clear_bot();
     }
@@ -1346,9 +1338,10 @@ pub unsafe extern "C" fn commands(o: &Options) {
             if is_ignoring_input(action) as u64 != 0 {
                 continue 's_39;
             }
+            let opts = get_options();
             match action {
                 75 => {
-                    if no_paste != 0 {
+                    if opts.no_paste != 0 {
                         start_ignoring_input();
                     }
                     continue 's_39;
@@ -1363,7 +1356,7 @@ pub unsafe extern "C" fn commands(o: &Options) {
                 }
                 33 => {
                     if number > 0 as std::ffi::c_int as LINENUM {
-                        swindow = number as std::ffi::c_int;
+                        opts.swindow = number as std::ffi::c_int;
                     }
                     current_block = 3507267478320338004;
                     break;
@@ -1374,7 +1367,7 @@ pub unsafe extern "C" fn commands(o: &Options) {
                 }
                 34 => {
                     if number > 0 as std::ffi::c_int as LINENUM {
-                        swindow = number as std::ffi::c_int;
+                        opts.swindow = number as std::ffi::c_int;
                     }
                     current_block = 2194593563755971021;
                     break;
@@ -1388,7 +1381,7 @@ pub unsafe extern "C" fn commands(o: &Options) {
                         number = 1 as std::ffi::c_int as LINENUM;
                     }
                     cmd_exec();
-                    if show_attn == 2 as std::ffi::c_int && number > 1 as std::ffi::c_int as LINENUM
+                    if opts.show_attn == 2 as std::ffi::c_int && number > 1 as std::ffi::c_int as LINENUM
                     {
                         set_attnpos(bottompos);
                     }
@@ -1396,7 +1389,7 @@ pub unsafe extern "C" fn commands(o: &Options) {
                         number as std::ffi::c_int,
                         LFALSE,
                         LFALSE,
-                        (action == 60 as std::ffi::c_int && chopline == 0) as std::ffi::c_int
+                        (action == 60 as std::ffi::c_int && opts.chopline == 0) as std::ffi::c_int
                             as lbool,
                     );
                     continue 's_39;
@@ -1410,19 +1403,19 @@ pub unsafe extern "C" fn commands(o: &Options) {
                         number as std::ffi::c_int,
                         LFALSE,
                         LFALSE,
-                        (action == 61 as std::ffi::c_int && chopline == 0) as std::ffi::c_int
+                        (action == 61 as std::ffi::c_int && opts.chopline == 0) as std::ffi::c_int
                             as lbool,
                     );
                     continue 's_39;
                 }
                 66 => {
                     cmd_exec();
-                    forward(wheel_lines, LFALSE, LFALSE, LFALSE);
+                    forward(opts.wheel_lines, LFALSE, LFALSE, LFALSE);
                     continue 's_39;
                 }
                 67 => {
                     cmd_exec();
-                    backward(wheel_lines, LFALSE, LFALSE, LFALSE);
+                    backward(opts.wheel_lines, LFALSE, LFALSE, LFALSE);
                     continue 's_39;
                 }
                 29 => {
@@ -1430,7 +1423,7 @@ pub unsafe extern "C" fn commands(o: &Options) {
                         number = 1 as std::ffi::c_int as LINENUM;
                     }
                     cmd_exec();
-                    if show_attn == 2 as std::ffi::c_int && number > 1 as std::ffi::c_int as LINENUM
+                    if opts.show_attn == 2 as std::ffi::c_int && number > 1 as std::ffi::c_int as LINENUM
                     {
                         set_attnpos(bottompos);
                     }
@@ -1446,11 +1439,12 @@ pub unsafe extern "C" fn commands(o: &Options) {
                     continue 's_39;
                 }
                 40 => {
+                    let opts = get_options();
                     if number <= 0 as std::ffi::c_int as LINENUM {
                         number = get_swindow() as LINENUM;
                     }
                     cmd_exec();
-                    if show_attn == 2 as std::ffi::c_int {
+                    if opts.show_attn == 2 as std::ffi::c_int {
                         set_attnpos(bottompos);
                     }
                     forward(number as std::ffi::c_int, LTRUE, LFALSE, LFALSE);
@@ -1465,6 +1459,7 @@ pub unsafe extern "C" fn commands(o: &Options) {
                     continue 's_39;
                 }
                 50 => {
+                    let opts = get_options();
                     if !(get_altfilename(curr_ifile)).is_null() {
                         error(
                             b"Warning: command may not work correctly when file is viewed via LESSOPEN\0"
@@ -1472,7 +1467,7 @@ pub unsafe extern "C" fn commands(o: &Options) {
                             0 as *mut std::ffi::c_void as *mut PARG,
                         );
                     }
-                    if show_attn != 0 {
+                    if opts.show_attn != 0 {
                         set_attnpos(bottompos);
                     }
                     newaction = forw_loop(0 as std::ffi::c_int);
@@ -1483,11 +1478,12 @@ pub unsafe extern "C" fn commands(o: &Options) {
                     continue 's_39;
                 }
                 14 => {
+                    let opts = get_options();
                     if number > 0 as std::ffi::c_int as LINENUM {
                         wscroll = number as std::ffi::c_int;
                     }
                     cmd_exec();
-                    if show_attn == 2 as std::ffi::c_int {
+                    if opts.show_attn == 2 as std::ffi::c_int {
                         set_attnpos(bottompos);
                     }
                     forward(wscroll, LFALSE, LFALSE, LFALSE);
@@ -1511,14 +1507,15 @@ pub unsafe extern "C" fn commands(o: &Options) {
                     break;
                 }
                 17 => {
-                    save_jump_sline = jump_sline;
+                    let opts = get_options();
+                    save_jump_sline = opts.jump_sline;
                     if number <= 0 as std::ffi::c_int as LINENUM {
                         number = 1 as std::ffi::c_int as LINENUM;
-                        jump_sline = 0 as std::ffi::c_int;
+                        opts.jump_sline = 0 as std::ffi::c_int;
                     }
                     cmd_exec();
                     jump_back(number);
-                    jump_sline = save_jump_sline;
+                    opts.jump_sline = save_jump_sline;
                     continue 's_39;
                 }
                 21 => {
@@ -1556,11 +1553,12 @@ pub unsafe extern "C" fn commands(o: &Options) {
                     continue 's_39;
                 }
                 51 => {
+                    let opts = get_options();
                     cmd_exec();
                     if number < 0 as std::ffi::c_int as LINENUM {
                         number = 0 as std::ffi::c_int as LINENUM;
                     }
-                    jump_line_loc(number, jump_sline);
+                    jump_line_loc(number, opts.jump_sline);
                     continue 's_39;
                 }
                 28 => {
@@ -1589,7 +1587,8 @@ pub unsafe extern "C" fn commands(o: &Options) {
                     }
                 }
                 15 => {
-                    search_type = (1 as std::ffi::c_int) << 0 as std::ffi::c_int | def_search_type;
+                    let opts = get_options();
+                    search_type = (1 as std::ffi::c_int) << 0 as std::ffi::c_int | opts.def_search_type;
                     if number <= 0 as std::ffi::c_int as LINENUM {
                         number = 1 as std::ffi::c_int as LINENUM;
                     }
@@ -1598,7 +1597,8 @@ pub unsafe extern "C" fn commands(o: &Options) {
                     c = getcc();
                 }
                 5 => {
-                    search_type = (1 as std::ffi::c_int) << 1 as std::ffi::c_int | def_search_type;
+                    let opts = get_options();
+                    search_type = (1 as std::ffi::c_int) << 1 as std::ffi::c_int | opts.def_search_type;
                     if number <= 0 as std::ffi::c_int as LINENUM {
                         number = 1 as std::ffi::c_int as LINENUM;
                     }
@@ -1732,16 +1732,17 @@ pub unsafe extern "C" fn commands(o: &Options) {
                     continue 's_39;
                 }
                 19 => {
+                    let opts = get_options();
                     if ch_getflags() & 0o10 as std::ffi::c_int != 0 {
                         continue 's_39;
                     }
                     cmd_exec();
                     save_hshift = hshift;
                     hshift = 0 as std::ffi::c_int;
-                    save_bs_mode = bs_mode;
-                    bs_mode = 0 as std::ffi::c_int;
-                    save_proc_backspace = proc_backspace;
-                    proc_backspace = 0 as std::ffi::c_int;
+                    save_bs_mode = opts.bs_mode;
+                    opts.bs_mode = 0 as std::ffi::c_int;
+                    save_proc_backspace = opts.proc_backspace;
+                    opts.proc_backspace = 0 as std::ffi::c_int;
                     edit(b"@/\\less/\\help/\\file/\\@\0" as *const u8 as *const std::ffi::c_char);
                     continue 's_39;
                 }
@@ -1978,11 +1979,12 @@ pub unsafe extern "C" fn commands(o: &Options) {
                     c = getcc();
                 }
                 41 => {
+                    let opts = get_options();
                     if number > 0 as std::ffi::c_int as LINENUM {
-                        shift_count = number as std::ffi::c_int;
+                        opts.shift_count = number as std::ffi::c_int;
                     } else {
-                        number = (if shift_count > 0 as std::ffi::c_int {
-                            shift_count
+                        number = (if opts.shift_count > 0 as std::ffi::c_int {
+                            opts.shift_count
                         } else {
                             sc_width / 2 as std::ffi::c_int
                         }) as LINENUM;
@@ -1996,11 +1998,12 @@ pub unsafe extern "C" fn commands(o: &Options) {
                     continue 's_39;
                 }
                 42 => {
+                    let opts = get_options();
                     if number > 0 as std::ffi::c_int as LINENUM {
-                        shift_count = number as std::ffi::c_int;
+                        opts.shift_count = number as std::ffi::c_int;
                     } else {
-                        number = (if shift_count > 0 as std::ffi::c_int {
-                            shift_count
+                        number = (if opts.shift_count > 0 as std::ffi::c_int {
+                            opts.shift_count
                         } else {
                             sc_width / 2 as std::ffi::c_int
                         }) as LINENUM;
@@ -2060,7 +2063,8 @@ pub unsafe extern "C" fn commands(o: &Options) {
                     );
                     continue;
                 } else {
-                    if no_edit_warn == 0 && !(get_altfilename(curr_ifile)).is_null() {
+                    let opts = get_options();
+                    if opts.no_edit_warn == 0 && !(get_altfilename(curr_ifile)).is_null() {
                         error(
                             b"WARNING: This file was viewed via LESSOPEN\0" as *const u8
                                 as *const std::ffi::c_char,
@@ -2150,11 +2154,12 @@ pub unsafe extern "C" fn commands(o: &Options) {
                 continue;
             }
             3507267478320338004 => {
+                let opts = get_options();
                 if number <= 0 as std::ffi::c_int as LINENUM {
                     number = get_swindow() as LINENUM;
                 }
                 cmd_exec();
-                if show_attn != 0 {
+                if opts.show_attn != 0 {
                     set_attnpos(bottompos);
                 }
                 forward(number as std::ffi::c_int, LFALSE, LTRUE, LFALSE);
@@ -2179,9 +2184,10 @@ pub unsafe extern "C" fn commands(o: &Options) {
                 continue;
             }
             5431927413890720344 => {
+                let opts = get_options();
                 hshift = save_hshift;
-                bs_mode = save_bs_mode;
-                proc_backspace = save_proc_backspace;
+                opts.bs_mode = save_bs_mode;
+                opts.proc_backspace = save_proc_backspace;
                 if edit_prev(1 as std::ffi::c_int) == 0 as std::ffi::c_int {
                     continue;
                 }
@@ -2192,21 +2198,23 @@ pub unsafe extern "C" fn commands(o: &Options) {
                 continue;
             }
             5798072534372498777 => {
+                let opts = get_options();
                 cmd_exec();
                 if edit(tagfile) == 0 as std::ffi::c_int {
                     let mut pos: POSITION = tagsearch();
                     if pos != -(1 as std::ffi::c_int) as POSITION {
-                        jump_loc(pos, jump_sline);
+                        jump_loc(pos, opts.jump_sline);
                     }
                 }
                 continue;
             }
             13267105165099174640 => {
+                let opts = get_options();
                 cmd_exec();
                 if edit(tagfile) == 0 as std::ffi::c_int {
                     let mut pos_0: POSITION = tagsearch();
                     if pos_0 != -(1 as std::ffi::c_int) as POSITION {
-                        jump_loc(pos_0, jump_sline);
+                        jump_loc(pos_0, opts.jump_sline);
                     }
                 }
                 continue;

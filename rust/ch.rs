@@ -21,6 +21,7 @@
 
 use crate::defs::*;
 use crate::defs::*;
+use crate::opttbl::{get_options, Options};
 use std::collections::{HashMap, VecDeque};
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom, Write};
@@ -49,15 +50,21 @@ extern "C" {
     fn ierror(fmt: *const std::ffi::c_char, parg: *mut PARG);
     fn ixerror(fmt: *const std::ffi::c_char, parg: *mut PARG);
     fn wait_message() -> *const std::ffi::c_char;
-    static mut autobuf: std::ffi::c_int;
     static mut sigs: std::ffi::c_int;
-    static mut follow_mode: std::ffi::c_int;
     static mut waiting_for_data: bool;
     static helpdata: [std::ffi::c_char; 0];
     static size_helpdata: std::ffi::c_int;
     static mut curr_ifile: *mut std::ffi::c_void;
     static mut logfile: std::ffi::c_int;
     static mut namelogfile: *mut std::ffi::c_char;
+}
+
+/*
+ * Get the current Options instance
+ */
+#[inline]
+unsafe fn opts() -> &'static mut crate::opttbl::Options {
+    get_options()
 }
 
 /*

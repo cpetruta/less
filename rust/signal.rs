@@ -1,5 +1,6 @@
 use crate::decode::lgetenv;
 use crate::defs::*;
+use crate::opttbl::get_options;
 use ::libc;
 use std::ffi::CString;
 extern "C" {
@@ -24,7 +25,6 @@ extern "C" {
     static mut sc_width: std::ffi::c_int;
     static mut sc_height: std::ffi::c_int;
     static mut wscroll: std::ffi::c_int;
-    static mut quit_on_intr: std::ffi::c_int;
 }
 pub type __pid_t = std::ffi::c_int;
 pub type __sighandler_t = Option<unsafe extern "C" fn(std::ffi::c_int) -> ()>;
@@ -168,7 +168,8 @@ pub unsafe extern "C" fn psignals() {
         screen_trashed();
     }
     if tsignals & (1 as std::ffi::c_int) << 0 as std::ffi::c_int != 0 {
-        if quit_on_intr != 0 {
+        let opts = get_options();
+        if opts.quit_on_intr != 0 {
             quit(1 as std::ffi::c_int + 1 as std::ffi::c_int);
         }
     }

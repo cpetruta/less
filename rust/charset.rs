@@ -2,6 +2,7 @@ use crate::compose_uni::compose_table;
 use crate::decode::lgetenv;
 use crate::defs::*;
 use crate::fmt_uni::fmt_table;
+use crate::opttbl::get_options;
 use crate::ubin_uni::ubin_table;
 use crate::wide_uni::wide_table;
 use crate::xbuf::XBuffer;
@@ -38,7 +39,6 @@ extern "C" {
         __locale: *const std::ffi::c_char,
     ) -> *mut std::ffi::c_char;
     fn nl_langinfo(__item: nl_item) -> *mut std::ffi::c_char;
-    static mut bs_mode: std::ffi::c_int;
 }
 pub type C2RustUnnamed = std::ffi::c_uint;
 pub const _ISalnum: C2RustUnnamed = 8;
@@ -1360,24 +1360,26 @@ unsafe extern "C" fn is_in_table(ch: char, table: &wchar_range_table) -> bool {
  * If a composing character follows any char, the two combine into one glyph.
  */
 pub unsafe extern "C" fn is_composing_char(ch: char) -> bool {
+    let opts = get_options();
     if is_in_table(ch, &user_prt_table) {
         return false;
     }
     return is_in_table(ch, &user_compose_table)
         || is_in_table(ch, &compose_table)
-        || (bs_mode != BS_CONTROL && is_in_table(ch, &fmt_table));
+        || (opts.bs_mode != BS_CONTROL && is_in_table(ch, &fmt_table));
 }
 
 /*
  * Should this UTF-8 character be treated as binary?
  */
 pub unsafe extern "C" fn is_ubin_char(ch: char) -> bool {
+    let opts = get_options();
     if is_in_table(ch, &mut user_prt_table) {
         return false;
     }
     return is_in_table(ch, &mut user_ubin_table)
         || is_in_table(ch, &ubin_table)
-        || bs_mode == BS_CONTROL && is_in_table(ch, &fmt_table);
+        || opts.bs_mode == BS_CONTROL && is_in_table(ch, &fmt_table);
 }
 
 /*

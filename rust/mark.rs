@@ -1,6 +1,7 @@
 use crate::defs::*;
 use crate::edit::edit_ifile;
 use crate::ifile::{IFileHandle, IFileManager};
+use crate::opttbl::{get_options, Options};
 use ::c2rust_bitfields;
 use std::io::{Read, Write};
 use std::path::Path;
@@ -39,8 +40,6 @@ extern "C" {
     fn get_scrpos(scrpos: *mut scrpos, where_0: std::ffi::c_int);
     static mut curr_ifile: Option<IFileHandle>;
     static mut sc_height: std::ffi::c_int;
-    static mut jump_sline: std::ffi::c_int;
-    static mut perma_marks: std::ffi::c_int;
 }
 pub type __off_t = std::ffi::c_long;
 pub type __off64_t = std::ffi::c_long;
@@ -178,6 +177,14 @@ impl Default for Mark {
             m_scrpos: scrpos { pos: 0, ln: 0 },
         }
     }
+}
+
+/*
+ * Get the current Options instance
+ */
+#[inline]
+unsafe fn opts() -> &'static mut crate::opttbl::Options {
+    get_options()
 }
 
 pub struct Marks {
@@ -379,7 +386,7 @@ impl Marks {
              * {{ Couldn't we instead set marks[LASTMARK] in edit()? }}
              */
             if c == b'\'' && m.m_scrpos.pos == -1 {
-                m.cmark(curr_ifile, 0, jump_sline);
+                m.cmark(curr_ifile, 0, opts().jump_sline);
             }
             m.mark_get_ifile(ifiles);
 
@@ -491,7 +498,7 @@ impl Marks {
         hdr: &str,
     ) {
         let mut i = 0;
-        if perma_marks == 0 {
+        if opts().perma_marks == 0 {
             return;
         }
         writeln!(fout, "{}", hdr);

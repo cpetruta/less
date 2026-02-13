@@ -1,5 +1,6 @@
 use crate::defs::*;
 use crate::line::gline;
+use crate::opttbl::get_options;
 use crate::signal::sigs;
 
 extern "C" {
@@ -31,9 +32,7 @@ extern "C" {
     static mut sc_width: std::ffi::c_int;
     static mut so_s_width: std::ffi::c_int;
     static mut so_e_width: std::ffi::c_int;
-    static mut oldbot: std::ffi::c_int;
     static mut utf_mode: std::ffi::c_int;
-    static mut intr_char: std::ffi::c_char;
 }
 #[derive(Copy, Clone)]
 #[repr(C)]
@@ -513,7 +512,8 @@ pub unsafe extern "C" fn error(mut fmt: *const std::ffi::c_char, mut parg: *mut 
         putchr('\n' as i32);
         return;
     }
-    if oldbot == 0 {
+    let opts = get_options();
+    if opts.oldbot == 0 {
         squish_check();
     }
     at_exit();
@@ -572,8 +572,9 @@ pub unsafe extern "C" fn ixerror(mut fmt: *const std::ffi::c_char, mut parg: *mu
     if supports_ctrl_x() == 0 {
         ierror(fmt, parg);
     } else {
+        let opts = get_options();
         let mut ichar: [std::ffi::c_char; 32] = [0; 32];
-        strcpy(ichar.as_mut_ptr(), prchar(intr_char as LWCHAR));
+        strcpy(ichar.as_mut_ptr(), prchar(opts.intr_char as LWCHAR));
         ierror_suffix(
             fmt,
             parg,

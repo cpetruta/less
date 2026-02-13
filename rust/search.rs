@@ -1,5 +1,6 @@
 use crate::decode::lgetenv;
 use crate::defs::*;
+use crate::opttbl::get_options;
 use crate::signal::sigs;
 use ::c2rust_bitfields;
 use std::ffi::CStr;
@@ -134,28 +135,12 @@ extern "C" {
     fn get_scrpos(scrpos: *mut scrpos, where_0: std::ffi::c_int);
     fn sindex_from_sline(sline: std::ffi::c_int) -> std::ffi::c_int;
     fn pr_expand(proto: *const std::ffi::c_char) -> *const std::ffi::c_char;
-    static mut how_search: std::ffi::c_int;
-    static mut caseless: std::ffi::c_int;
-    static mut linenums: std::ffi::c_int;
-    static mut jump_sline: std::ffi::c_int;
-    static mut bs_mode: std::ffi::c_int;
-    static mut proc_backspace: std::ffi::c_int;
-    static mut proc_return: std::ffi::c_int;
-    static mut ctldisp: std::ffi::c_int;
-    static mut status_col: std::ffi::c_int;
     static mut ml_search: *mut std::ffi::c_void;
     static mut start_attnpos: POSITION;
     static mut end_attnpos: POSITION;
     static mut sc_width: std::ffi::c_int;
     static mut sc_height: std::ffi::c_int;
     static mut hshift: std::ffi::c_int;
-    static mut match_shift: std::ffi::c_int;
-    static mut nosearch_header_lines: std::ffi::c_int;
-    static mut nosearch_header_cols: std::ffi::c_int;
-    static mut header_lines: std::ffi::c_int;
-    static mut header_cols: std::ffi::c_int;
-    static mut rscroll_char: LWCHAR;
-    static mut hilite_search: std::ffi::c_int;
     static mut squished: lbool;
     static mut can_goto_line: std::ffi::c_int;
 }
@@ -395,16 +380,17 @@ unsafe extern "C" fn set_pattern(
     mut search_type: std::ffi::c_int,
     mut show_error: std::ffi::c_int,
 ) -> std::ffi::c_int {
+    let opts = get_options();
     (*info).is_ucase_pattern = (if pattern.is_null() {
         LFALSE as std::ffi::c_int as std::ffi::c_uint
     } else {
         is_ucase(pattern) as std::ffi::c_uint
     }) as lbool;
     is_caseless =
-        if (*info).is_ucase_pattern as std::ffi::c_uint != 0 && caseless != 2 as std::ffi::c_int {
+        if (*info).is_ucase_pattern as std::ffi::c_uint != 0 && opts.caseless != 2 as std::ffi::c_int {
             0 as std::ffi::c_int
         } else {
-            caseless
+            opts.caseless
         };
     if pattern.is_null() {
         (*info).compiled = 0 as *mut regex_t;
@@ -439,6 +425,7 @@ pub unsafe extern "C" fn init_search() {
 }
 #[no_mangle]
 pub unsafe extern "C" fn get_cvt_ops(mut search_type: std::ffi::c_int) -> std::ffi::c_int {
+    let opts = get_options();
     let mut ops: std::ffi::c_int = 0 as std::ffi::c_int;
     if is_caseless != 0
         && (LTRUE as std::ffi::c_int == 0
@@ -446,17 +433,17 @@ pub unsafe extern "C" fn get_cvt_ops(mut search_type: std::ffi::c_int) -> std::f
     {
         ops |= 0o1 as std::ffi::c_int;
     }
-    if proc_backspace == 1 as std::ffi::c_int
-        || bs_mode == 0 as std::ffi::c_int && proc_backspace == 0 as std::ffi::c_int
+    if opts.proc_backspace == 1 as std::ffi::c_int
+        || opts.bs_mode == 0 as std::ffi::c_int && opts.proc_backspace == 0 as std::ffi::c_int
     {
         ops |= 0o2 as std::ffi::c_int;
     }
-    if proc_return == 1 as std::ffi::c_int
-        || bs_mode != 2 as std::ffi::c_int && proc_backspace == 0 as std::ffi::c_int
+    if opts.proc_return == 1 as std::ffi::c_int
+        || opts.bs_mode != 2 as std::ffi::c_int && opts.proc_backspace == 0 as std::ffi::c_int
     {
         ops |= 0o4 as std::ffi::c_int;
     }
-    if ctldisp == 2 as std::ffi::c_int {
+    if opts.ctldisp == 2 as std::ffi::c_int {
         ops |= 0o10 as std::ffi::c_int;
     }
     return ops;
@@ -680,7 +667,8 @@ unsafe extern "C" fn hilited_range_attr(mut pos: POSITION, mut epos: POSITION) -
 }
 #[no_mangle]
 pub unsafe extern "C" fn set_header(mut pos: POSITION) {
-    header_start_pos = if header_lines == 0 as std::ffi::c_int {
+    let opts = get_options();
+    header_start_pos = if opts.header_lines == 0 as std::ffi::c_int {
         -(1 as std::ffi::c_int) as POSITION
     } else {
         pos
@@ -688,7 +676,7 @@ pub unsafe extern "C" fn set_header(mut pos: POSITION) {
     if header_start_pos != -(1 as std::ffi::c_int) as POSITION {
         let mut ln: std::ffi::c_int = 0;
         ln = 0 as std::ffi::c_int;
-        while ln < header_lines {
+        while ln < opts.header_lines {
             pos = forw_raw_line(pos, 0 as *mut *const std::ffi::c_char, 0 as *mut size_t);
             if pos == -(1 as std::ffi::c_int) as POSITION {
                 break;
@@ -742,6 +730,7 @@ unsafe extern "C" fn shift_visible(
     mut start_off: size_t,
     mut end_off: size_t,
 ) {
+    let opts = get_options();
     let mut start_pos: POSITION = (line_pos as size_t).wrapping_add(start_off) as POSITION;
     let mut end_pos: POSITION = (line_pos as size_t).wrapping_add(end_off) as POSITION;
     let mut start_col: std::ffi::c_int = col_from_pos(
@@ -753,7 +742,7 @@ unsafe extern "C" fn shift_visible(
     let mut end_col: std::ffi::c_int = col_from_pos(line_pos, end_pos, start_pos, start_col);
     let mut swidth: std::ffi::c_int = sc_width
         - line_pfx_width()
-        - (if rscroll_char != 0 {
+        - (if opts.rscroll_char != 0 {
             1 as std::ffi::c_int
         } else {
             0 as std::ffi::c_int
@@ -776,10 +765,10 @@ unsafe extern "C" fn shift_visible(
         if start_col >= eol_col {
             new_hshift = eol_col;
         } else {
-            new_hshift = if start_col < match_shift {
+            new_hshift = if start_col < opts.match_shift {
                 0 as std::ffi::c_int
             } else {
-                start_col - match_shift
+                start_col - opts.match_shift
             };
         }
     }
@@ -795,11 +784,12 @@ pub unsafe extern "C" fn is_hilited_attr(
     mut nohide: std::ffi::c_int,
     mut p_matches: *mut std::ffi::c_int,
 ) -> std::ffi::c_int {
+    let opts = get_options();
     let mut attr: std::ffi::c_int = 0;
     if !p_matches.is_null() {
         *p_matches = 0 as std::ffi::c_int;
     }
-    if status_col == 0
+    if opts.status_col == 0
         && start_attnpos != -(1 as std::ffi::c_int) as POSITION
         && pos <= end_attnpos
         && (epos == -(1 as std::ffi::c_int) as POSITION || epos > start_attnpos)
@@ -822,7 +812,7 @@ pub unsafe extern "C" fn is_hilited_attr(
         return attr;
     }
     *p_matches = 1 as std::ffi::c_int;
-    if hilite_search == 0 as std::ffi::c_int {
+    if opts.hilite_search == 0 as std::ffi::c_int {
         return 0 as std::ffi::c_int;
     }
     if nohide == 0 && hide_hilite as std::ffi::c_uint != 0 {
@@ -1159,13 +1149,15 @@ unsafe extern "C" fn hilite_screen() {
 }
 #[no_mangle]
 pub unsafe extern "C" fn chg_hilite() {
+    let opts = get_options();
     clr_hilite();
     hide_hilite = LFALSE;
-    if hilite_search == 2 as std::ffi::c_int {
+    if opts.hilite_search == 2 as std::ffi::c_int {
         hilite_screen();
     }
 }
 unsafe extern "C" fn search_pos(mut search_type: std::ffi::c_int) -> POSITION {
+    let opts = get_options();
     let mut pos: POSITION = 0;
     let mut sindex: std::ffi::c_int = 0;
     if empty_screen() != 0 {
@@ -1181,13 +1173,13 @@ unsafe extern "C" fn search_pos(mut search_type: std::ffi::c_int) -> POSITION {
         sindex = 0 as std::ffi::c_int;
     } else {
         let mut add_one: lbool = LFALSE;
-        if how_search == 1 as std::ffi::c_int {
+        if opts.how_search == 1 as std::ffi::c_int {
             if search_type & (1 as std::ffi::c_int) << 0 as std::ffi::c_int != 0 {
                 sindex = sc_height - 1 as std::ffi::c_int;
             } else {
                 sindex = 0 as std::ffi::c_int;
             }
-        } else if how_search == 2 as std::ffi::c_int
+        } else if opts.how_search == 2 as std::ffi::c_int
             && search_type & (1 as std::ffi::c_int) << 14 as std::ffi::c_int == 0
         {
             if search_type & (1 as std::ffi::c_int) << 0 as std::ffi::c_int != 0 {
@@ -1196,7 +1188,7 @@ unsafe extern "C" fn search_pos(mut search_type: std::ffi::c_int) -> POSITION {
                 sindex = sc_height - 1 as std::ffi::c_int;
             }
         } else {
-            sindex = sindex_from_sline(jump_sline);
+            sindex = sindex_from_sline(opts.jump_sline);
             if search_type & (1 as std::ffi::c_int) << 0 as std::ffi::c_int != 0 {
                 add_one = LTRUE;
             }
@@ -1590,6 +1582,7 @@ unsafe extern "C" fn search_range(
     mut pendpos: *mut POSITION,
     mut plastlinepos: *mut POSITION,
 ) -> std::ffi::c_int {
+    let opts = get_options();
     let mut line: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
     let mut cline: *mut std::ffi::c_char = 0 as *mut std::ffi::c_char;
     let mut line_len: size_t = 0;
@@ -1604,10 +1597,10 @@ unsafe extern "C" fn search_range(
     let mut oldpos: POSITION = 0;
     let mut skip_bytes: std::ffi::c_int = 0 as std::ffi::c_int;
     let mut swidth: size_t = (sc_width - line_pfx_width()) as size_t;
-    let mut sheight: size_t = (sc_height - sindex_from_sline(jump_sline)) as size_t;
+    let mut sheight: size_t = (sc_height - sindex_from_sline(opts.jump_sline)) as size_t;
     linenum = find_linenum(pos);
-    if nosearch_header_lines != 0 && linenum <= header_lines as LINENUM {
-        linenum = (header_lines + 1 as std::ffi::c_int) as LINENUM;
+    if opts.nosearch_header_lines != 0 && linenum <= opts.header_lines as LINENUM {
+        linenum = (opts.header_lines + 1 as std::ffi::c_int) as LINENUM;
         pos = find_pos(linenum);
     }
     if pos == -(1 as std::ffi::c_int) as POSITION {
@@ -1680,15 +1673,15 @@ unsafe extern "C" fn search_range(
             }
             return matches;
         } else {
-            if linenums != 0 && abs((pos - oldpos) as std::ffi::c_int) > 2048 as std::ffi::c_int {
+            if opts.linenums != 0 && abs((pos - oldpos) as std::ffi::c_int) > 2048 as std::ffi::c_int {
                 add_lnum(linenum, pos);
             }
             oldpos = pos;
             if is_filtered(linepos) as u64 != 0 {
                 continue;
             }
-            if nosearch_header_cols != 0 {
-                skip_bytes = skip_columns(header_cols, &mut line, &mut line_len);
+            if opts.nosearch_header_cols != 0 {
+                skip_bytes = skip_columns(opts.header_cols, &mut line, &mut line_len);
             }
             if search_type & (1 as std::ffi::c_int) << 16 as std::ffi::c_int != 0 {
                 if osc8_search_line(
@@ -1767,7 +1760,7 @@ unsafe extern "C" fn search_range(
                         } else {
                             matches -= 1;
                             if matches <= 0 as std::ffi::c_int {
-                                if hilite_search == 1 as std::ffi::c_int {
+                                if opts.hilite_search == 1 as std::ffi::c_int {
                                     clr_hilite();
                                     hilite_line(
                                         linepos + skip_bytes as POSITION,
@@ -1901,7 +1894,8 @@ pub unsafe extern "C" fn osc8_search(
         return;
     }
     if onscreen(pos) < 0 as std::ffi::c_int {
-        jump_loc(pos, jump_sline);
+        let opts = get_options();
+        jump_loc(pos, opts.jump_sline);
     }
     repaint_hilite(LTRUE);
 }
@@ -2142,7 +2136,8 @@ pub unsafe extern "C" fn osc8_jump() {
         );
         return;
     }
-    jump_loc(osc8_linepos, jump_sline);
+    let opts = get_options();
+    jump_loc(osc8_linepos, opts.jump_sline);
 }
 unsafe extern "C" fn hist_pattern(mut search_type: std::ffi::c_int) -> std::ffi::c_int {
     let mut pattern: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
@@ -2156,15 +2151,17 @@ unsafe extern "C" fn hist_pattern(mut search_type: std::ffi::c_int) -> std::ffi:
     {
         return -(1 as std::ffi::c_int);
     }
-    if hilite_search == 2 as std::ffi::c_int && hide_hilite as u64 == 0 {
+    let opts = get_options();
+    if opts.hilite_search == 2 as std::ffi::c_int && hide_hilite as u64 == 0 {
         hilite_screen();
     }
     return 1 as std::ffi::c_int;
 }
 #[no_mangle]
 pub unsafe extern "C" fn chg_caseless() {
+    let opts = get_options();
     if search_info.is_ucase_pattern as u64 == 0 {
-        is_caseless = caseless;
+        is_caseless = opts.caseless;
         if LTRUE as std::ffi::c_int == 0 {
             return;
         }
@@ -2204,10 +2201,11 @@ pub unsafe extern "C" fn search(
             );
             return -(1 as std::ffi::c_int);
         }
-        if hilite_search == 1 as std::ffi::c_int || status_col != 0 {
+        let opts = get_options();
+        if opts.hilite_search == 1 as std::ffi::c_int || opts.status_col != 0 {
             repaint_hilite(LFALSE);
         }
-        if hilite_search == 2 as std::ffi::c_int && hide_hilite as std::ffi::c_uint != 0 {
+        if opts.hilite_search == 2 as std::ffi::c_int && hide_hilite as std::ffi::c_uint != 0 {
             hide_hilite = LFALSE;
             hilite_screen();
         }
@@ -2218,22 +2216,24 @@ pub unsafe extern "C" fn search(
         if set_pattern(&mut search_info, pattern, search_type, show_error) < 0 as std::ffi::c_int {
             return -(1 as std::ffi::c_int);
         }
-        if hilite_search != 0 || status_col != 0 {
+        let opts = get_options();
+        if opts.hilite_search != 0 || opts.status_col != 0 {
             repaint_hilite(LFALSE);
             hide_hilite = LFALSE;
             clr_hilite();
         }
-        if hilite_search == 2 as std::ffi::c_int || status_col != 0 {
+        if opts.hilite_search == 2 as std::ffi::c_int || opts.status_col != 0 {
             hilite_screen();
         }
     }
     pos = search_pos(search_type);
-    opos = position(sindex_from_sline(jump_sline));
+    let opts = get_options();
+    opos = position(sindex_from_sline(opts.jump_sline));
     if pos == -(1 as std::ffi::c_int) as POSITION {
         if search_type & (1 as std::ffi::c_int) << 9 as std::ffi::c_int != 0 {
             return n;
         }
-        if hilite_search == 1 as std::ffi::c_int || status_col != 0 {
+        if opts.hilite_search == 1 as std::ffi::c_int || opts.status_col != 0 {
             repaint_hilite(LTRUE);
         }
         error(
@@ -2261,7 +2261,8 @@ pub unsafe extern "C" fn search(
         return -(1 as std::ffi::c_int);
     }
     if n != 0 as std::ffi::c_int {
-        if (hilite_search == 1 as std::ffi::c_int || status_col != 0) && n > 0 as std::ffi::c_int {
+        let opts = get_options();
+        if (opts.hilite_search == 1 as std::ffi::c_int || opts.status_col != 0) && n > 0 as std::ffi::c_int {
             repaint_hilite(LTRUE);
         }
         return n;
@@ -2270,10 +2271,12 @@ pub unsafe extern "C" fn search(
         if lastlinepos != -(1 as std::ffi::c_int) as POSITION {
             jump_loc(lastlinepos, -(1 as std::ffi::c_int));
         } else if pos != opos {
-            jump_loc(pos, jump_sline);
+            let opts = get_options();
+            jump_loc(pos, opts.jump_sline);
         }
     }
-    if hilite_search == 1 as std::ffi::c_int || status_col != 0 {
+    let opts = get_options();
+    if opts.hilite_search == 1 as std::ffi::c_int || opts.status_col != 0 {
         repaint_hilite(LTRUE);
     }
     return 0 as std::ffi::c_int;

@@ -1,5 +1,6 @@
 use crate::defs::*;
 use crate::line::{pappend, pappend_b, pdone, prewind};
+use crate::opttbl::get_options;
 use crate::opttbl::Options;
 
 extern "C" {
@@ -27,15 +28,10 @@ extern "C" {
     ) -> std::ffi::c_int;
     fn prep_hilite(spos: POSITION, epos: POSITION, maxlines: std::ffi::c_int);
     fn is_filtering() -> lbool;
-    static mut squeeze: std::ffi::c_int;
     static mut hshift: std::ffi::c_int;
-    static mut quit_if_one_screen: bool;
-    static mut status_col: std::ffi::c_int;
-    static mut wordwrap: std::ffi::c_int;
     static mut start_attnpos: POSITION;
     static mut end_attnpos: POSITION;
     static mut hilite_search: std::ffi::c_int;
-    static mut show_attn: std::ffi::c_int;
 }
 
 /*
@@ -142,14 +138,15 @@ pub unsafe extern "C" fn forw_line_seg(
     if !p_linepos.is_none() {
         *p_linepos = Some(NULL_POSITION);
     }
+    let opts = get_options();
     loop {
         if curr_pos == NULL_POSITION {
             null_line();
             return NULL_POSITION;
         }
-        if hilite_search == OPT_ONPLUS
+        if opts.hilite_search == OPT_ONPLUS
             || is_filtering() != 0
-            || status_col != 0 && hilite_search != 1
+            || opts.status_col != 0 && opts.hilite_search != 1
         {
             /*
              * If we are ignoring EOI (command F), only prepare
@@ -205,7 +202,7 @@ pub unsafe extern "C" fn forw_line_seg(
                 new_pos += 1;
                 if backchars > 0 {
                     pshift_all();
-                    if wordwrap != 0 && (c == b' ' as i32 || c == b'\t' as i32) {
+                    if opts.wordwrap != 0 && (c == b' ' as i32 || c == b'\t' as i32) {
                         loop {
                             new_pos += 1;
                             c = ch_forw_get();
@@ -279,10 +276,10 @@ pub unsafe extern "C" fn forw_line_seg(
                         }
                         new_pos = ch_tell();
                         endline = true;
-                        quit_if_one_screen = false;
+                        opts.quit_if_one_screen = 0;
                         chopped = false;
                     } else {
-                        if wordwrap == 0 {
+                        if opts.wordwrap == 0 {
                             new_pos = ch_tell() - backchars as POSITION;
                         } else if c == b' ' as i32 || c == b'\t' as i32 {
                             /*
@@ -314,7 +311,7 @@ pub unsafe extern "C" fn forw_line_seg(
                     }
                     break;
                 } else {
-                    if wordwrap != 0 {
+                    if opts.wordwrap != 0 {
                         if c == b' ' as i32 || c == b'\t' as i32 {
                             if skipped_leading {
                                 wrap_pos = ch_tell();
@@ -328,7 +325,7 @@ pub unsafe extern "C" fn forw_line_seg(
                 }
             }
         }
-        if blankline && show_attn != 0 {
+        if blankline && opts.show_attn != 0 {
             /* Add spurious space to carry possible attn hilite.
              * Use pappend_b so that if line ended with \r\n,
              * we insert the space before the \r. */
@@ -344,10 +341,10 @@ pub unsafe extern "C" fn forw_line_seg(
         }
         curr_pos = new_pos;
     }
-    if status_col != 0 {
+    if opts.status_col != 0 {
         init_status_col(base_pos, line_position(), edisp_pos, new_pos);
     }
-    if squeeze != 0 && blankline {
+    if opts.squeeze != 0 && blankline {
         loop {
             c = ch_forw_get();
             if !(c == b'\n' as i32 || c == b'\r' as i32) {
@@ -410,6 +407,7 @@ pub unsafe extern "C" fn back_line(
     let mut backchars = 0;
     let mut wrap_pos: POSITION = 0;
     let mut skipped_leading: bool = false;
+    let opts = get_options();
     loop {
         if curr_pos == NULL_POSITION || curr_pos <= 0 {
             null_line();
@@ -419,7 +417,7 @@ pub unsafe extern "C" fn back_line(
             null_line();
             return NULL_POSITION;
         }
-        if squeeze != 0 {
+        if opts.squeeze != 0 {
             /*
              * Find out if the "current" line was blank.
              */
@@ -473,9 +471,9 @@ pub unsafe extern "C" fn back_line(
                 break;
             }
         }
-        if hilite_search == OPT_ONPLUS
+        if opts.hilite_search == OPT_ONPLUS
             || is_filtering() != 0
-            || status_col != 0 && hilite_search != 1
+            || opts.status_col != 0 && opts.hilite_search != 1
         {
             prep_hilite(base_pos, NULL_POSITION, 1);
         }
@@ -533,14 +531,14 @@ pub unsafe extern "C" fn back_line(
                         if chop_line() != 0 || hshift > 0 {
                             endline = true;
                             chopped = true;
-                            quit_if_one_screen = false;
+                            opts.quit_if_one_screen = 0;
                             edisp_pos = new_pos;
                             break '_loop;
                         } else if !p_newline.is_none() {
                             *p_newline = Some(false);
                         }
                     } else {
-                        if wordwrap != 0 {
+                        if opts.wordwrap != 0 {
                             if c == ' ' as i32 || c == '\t' as i32 {
                                 if skipped_leading {
                                     wrap_pos = new_pos;
@@ -556,7 +554,7 @@ pub unsafe extern "C" fn back_line(
                         break '_loop;
                     }
                 }
-                if wordwrap == 0 {
+                if opts.wordwrap == 0 {
                     pshift_all();
                     new_pos -= backchars as POSITION;
                     break;
@@ -603,7 +601,7 @@ pub unsafe extern "C" fn back_line(
         }
         curr_pos = begin_new_pos;
     }
-    if status_col != 0 {
+    if opts.status_col != 0 {
         init_status_col(base_pos, line_position(), edisp_pos, new_pos);
     }
     begin_new_pos

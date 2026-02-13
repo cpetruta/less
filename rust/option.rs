@@ -1,6 +1,6 @@
 use crate::decode::lgetenv;
 use crate::defs::*;
-use crate::opttbl::{findopt, findopt_name};
+use crate::opttbl::{findopt, findopt_name, get_options};
 use crate::opttbl::{LOption, OptAction, OptFlags, ToggleHow};
 use crate::util::str_to_int;
 use bitflags::bitflags;
@@ -33,11 +33,7 @@ extern "C" {
     fn error(fmt: *const std::ffi::c_char, parg: *mut PARG);
     fn repaint_hilite(on: lbool);
     fn chg_hilite();
-    static mut less_is_more: std::ffi::c_int;
-    static mut quit_at_eof: std::ffi::c_int;
     static mut every_first_cmd: *mut std::ffi::c_char;
-    static mut opt_use_backslash: std::ffi::c_int;
-    static mut ctldisp: std::ffi::c_int;
 }
 #[derive(Copy, Clone)]
 #[repr(C)]
@@ -525,6 +521,7 @@ unsafe fn optstring<'a>(
     printopt: &str,
     validchars: Option<&str>,
 ) -> Option<(String, &'a str)> {
+    let opts = get_options();
     if s.is_empty() {
         nostring(printopt);
         return None;
@@ -538,7 +535,7 @@ unsafe fn optstring<'a>(
 
     while let Some((i, ch)) = chars.next() {
         /* Handle backslash escaping */
-        let ch = if opt_use_backslash != 0 && ch == '\\' {
+        let ch = if opts.opt_use_backslash != 0 && ch == '\\' {
             if let Some((_, next)) = chars.next() {
                 next
             } else {
@@ -723,9 +720,10 @@ pub unsafe extern "C" fn init_unsupport() {
 // Get the value of the -e flag.
 #[no_mangle]
 pub unsafe extern "C" fn get_quit_at_eof() -> std::ffi::c_int {
-    if less_is_more == 0 {
-        return quit_at_eof;
+    let opts = get_options();
+    if opts.less_is_more == 0 {
+        return opts.quit_at_eof;
     }
     // When less_is_more is set, the -e flag semantics are different.
-    return if quit_at_eof != 0 { OPT_ONPLUS } else { OPT_ON };
+    return if opts.quit_at_eof != 0 { OPT_ONPLUS } else { OPT_ON };
 }

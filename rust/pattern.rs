@@ -1,4 +1,5 @@
 use crate::defs::*;
+use crate::opttbl::get_options;
 use ::c2rust_bitfields;
 extern "C" {
     pub type re_dfa_t;
@@ -27,7 +28,6 @@ extern "C" {
         ops: std::ffi::c_int,
     );
     fn error(fmt: *const std::ffi::c_char, parg: *mut PARG);
-    static mut caseless: std::ffi::c_int;
     static mut is_caseless: std::ffi::c_int;
 }
 #[derive(Copy, Clone)]
@@ -119,7 +119,8 @@ pub unsafe extern "C" fn compile_pattern(
     mut comp_pattern: *mut *mut regex_t,
 ) -> std::ffi::c_int {
     let mut result: std::ffi::c_int = 0;
-    if caseless != 2 as std::ffi::c_int
+    let opts = get_options();
+    if opts.caseless != 2 as std::ffi::c_int
         || LTRUE as std::ffi::c_int != 0
             && search_type & (1 as std::ffi::c_int) << 12 as std::ffi::c_int == 0
     {
@@ -162,6 +163,7 @@ unsafe extern "C" fn match_0(
     mut ep: *mut *mut *const std::ffi::c_char,
     mut nsubs: std::ffi::c_int,
 ) -> std::ffi::c_int {
+    let opts = get_options();
     let mut pp: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
     let mut lp: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
     let mut pattern_end: *const std::ffi::c_char = pattern.offset(pattern_len as isize);
@@ -172,7 +174,7 @@ unsafe extern "C" fn match_0(
         loop {
             let mut cp: std::ffi::c_char = *pp;
             let mut cl: std::ffi::c_char = *lp;
-            if caseless == 2 as std::ffi::c_int
+            if opts.caseless == 2 as std::ffi::c_int
                 && (cp as std::ffi::c_int >= 'A' as i32 && cp as std::ffi::c_int <= 'Z' as i32)
             {
                 cp = (cp as std::ffi::c_int - 'A' as i32 + 'a' as i32) as std::ffi::c_char;

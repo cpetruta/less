@@ -1,4 +1,5 @@
 use crate::defs::*;
+use crate::opttbl::get_options;
 extern "C" {
     fn quit(status: std::ffi::c_int);
     fn home();
@@ -40,20 +41,13 @@ extern "C" {
     fn empty_lines(s: std::ffi::c_int, e: std::ffi::c_int) -> std::ffi::c_int;
     fn is_filtering() -> lbool;
     static mut sigs: std::ffi::c_int;
-    static mut top_scroll: std::ffi::c_int;
-    static mut quiet: std::ffi::c_int;
     static mut sc_width: std::ffi::c_int;
     static mut sc_height: std::ffi::c_int;
     static mut hshift: std::ffi::c_int;
     static mut auto_wrap: std::ffi::c_int;
     static mut plusoption: lbool;
-    static mut forw_scroll: std::ffi::c_int;
-    static mut back_scroll: std::ffi::c_int;
     static mut ignore_eoi: std::ffi::c_int;
-    static mut header_lines: std::ffi::c_int;
-    static mut header_cols: std::ffi::c_int;
     static mut full_screen: std::ffi::c_int;
-    static mut stop_on_form_feed: std::ffi::c_int;
     static mut header_start_pos: POSITION;
     static mut getting_one_screen: lbool;
     static mut tagoption: *mut std::ffi::c_char;
@@ -72,13 +66,14 @@ pub static mut shell_lines: std::ffi::c_int = 1 as std::ffi::c_int;
 pub static mut soft_eof: POSITION = -(1 as std::ffi::c_int) as POSITION;
 #[no_mangle]
 pub unsafe extern "C" fn eof_bell() {
+    let opts = get_options();
     static mut last_eof_bell: time_t = 0 as std::ffi::c_int as time_t;
     let mut now: time_t = get_time();
     if now == last_eof_bell {
         return;
     }
     last_eof_bell = now;
-    if quiet == 0 as std::ffi::c_int {
+    if opts.quiet == 0 as std::ffi::c_int {
         bell();
     } else {
         vbell();
@@ -158,8 +153,9 @@ unsafe extern "C" fn forw_line_pfx(
     return pos;
 }
 unsafe extern "C" fn set_attr_header(mut ln: std::ffi::c_int) {
+    let opts = get_options();
     set_attr_line((9 as std::ffi::c_int) << 8 as std::ffi::c_int);
-    if ln + 1 as std::ffi::c_int == header_lines
+    if ln + 1 as std::ffi::c_int == opts.header_lines
         && position(0 as std::ffi::c_int) != header_start_pos
     {
         set_attr_line((1 as std::ffi::c_int) << 0 as std::ffi::c_int);
@@ -167,13 +163,14 @@ unsafe extern "C" fn set_attr_header(mut ln: std::ffi::c_int) {
 }
 #[no_mangle]
 pub unsafe extern "C" fn overlay_header() -> std::ffi::c_int {
+    let opts = get_options();
     let mut ln: std::ffi::c_int = 0;
     let mut moved: lbool = LFALSE;
-    if header_lines > 0 as std::ffi::c_int {
+    if opts.header_lines > 0 as std::ffi::c_int {
         let mut pos: POSITION = header_start_pos;
         home();
         ln = 0 as std::ffi::c_int;
-        while ln < header_lines {
+        while ln < opts.header_lines {
             pos = forw_line(pos, 0 as *mut POSITION, 0 as *mut lbool);
             set_attr_header(ln);
             clear_eol();
@@ -182,12 +179,12 @@ pub unsafe extern "C" fn overlay_header() -> std::ffi::c_int {
         }
         moved = LTRUE;
     }
-    if header_cols > 0 as std::ffi::c_int {
+    if opts.header_cols > 0 as std::ffi::c_int {
         let mut pos_0: POSITION = header_start_pos;
         home();
         ln = 0 as std::ffi::c_int;
         while ln < sc_height - 1 as std::ffi::c_int {
-            if ln >= header_lines {
+            if ln >= opts.header_lines {
                 pos_0 = position(ln);
             }
             if pos_0 == -(1 as std::ffi::c_int) as POSITION {
@@ -195,8 +192,8 @@ pub unsafe extern "C" fn overlay_header() -> std::ffi::c_int {
             } else {
                 pos_0 = forw_line_pfx(
                     pos_0,
-                    header_cols,
-                    ((ln + 1 as std::ffi::c_int) < header_lines) as std::ffi::c_int,
+                    opts.header_cols,
+                    ((ln + 1 as std::ffi::c_int) < opts.header_lines) as std::ffi::c_int,
                 );
                 set_attr_header(ln);
                 put_line(LFALSE);
@@ -219,6 +216,7 @@ pub unsafe extern "C" fn forw(
     mut to_newline: lbool,
     mut nblank: std::ffi::c_int,
 ) {
+    let opts = get_options();
     let mut nlines: std::ffi::c_int = 0 as std::ffi::c_int;
     let mut do_repaint: lbool = LFALSE;
     let mut newline: lbool = LFALSE;
@@ -228,11 +226,11 @@ pub unsafe extern "C" fn forw(
     }
     squish_check();
     do_repaint = (only_last as std::ffi::c_uint != 0 && n > sc_height - 1 as std::ffi::c_int
-        || forw_scroll >= 0 as std::ffi::c_int
-            && n > forw_scroll
+        || opts.forw_scroll >= 0 as std::ffi::c_int
+            && n > opts.forw_scroll
             && n != sc_height - 1 as std::ffi::c_int) as std::ffi::c_int as lbool;
     if do_repaint as u64 == 0 {
-        if top_scroll != 0 && n >= sc_height - 1 as std::ffi::c_int && pos != ch_length() {
+        if opts.top_scroll != 0 && n >= sc_height - 1 as std::ffi::c_int && pos != ch_length() {
             pos_clear();
             force = LTRUE;
             clear();
@@ -241,7 +239,7 @@ pub unsafe extern "C" fn forw(
         if pos != position(-(2 as std::ffi::c_int)) || empty_screen() != 0 {
             pos_clear();
             force = LTRUE;
-            if top_scroll != 0 {
+            if opts.top_scroll != 0 {
                 clear();
                 home();
             } else if first_time as u64 == 0 && is_filtering() as u64 == 0 && full_screen != 0 {
@@ -293,16 +291,16 @@ pub unsafe extern "C" fn forw(
         }
         if first_time as std::ffi::c_uint != 0
             && pos == -(1 as std::ffi::c_int) as POSITION
-            && top_scroll == 0
-            && header_lines == 0 as std::ffi::c_int
-            && header_cols == 0 as std::ffi::c_int
+            && opts.top_scroll == 0
+            && opts.header_lines == 0 as std::ffi::c_int
+            && opts.header_cols == 0 as std::ffi::c_int
             && tagoption.is_null()
             && plusoption as u64 == 0
         {
             squished = LTRUE;
         } else {
             put_line(LTRUE);
-            if stop_on_form_feed != 0
+            if opts.stop_on_form_feed != 0
                 && do_repaint as u64 == 0
                 && line_is_ff() as std::ffi::c_uint != 0
                 && position(0 as std::ffi::c_int) != -(1 as std::ffi::c_int) as POSITION
@@ -333,13 +331,14 @@ pub unsafe extern "C" fn back(
     mut only_last: lbool,
     mut to_newline: lbool,
 ) {
+    let opts = get_options();
     let mut nlines: std::ffi::c_int = 0 as std::ffi::c_int;
     let mut do_repaint: lbool = LFALSE;
     let mut newline: lbool = LFALSE;
     squish_check();
     do_repaint = (n > get_back_scroll()
         || only_last as std::ffi::c_uint != 0 && n > sc_height - 1 as std::ffi::c_int
-        || header_lines > 0 as std::ffi::c_int) as std::ffi::c_int as lbool;
+        || opts.header_lines > 0 as std::ffi::c_int) as std::ffi::c_int as lbool;
     loop {
         n -= 1;
         if !(n >= 0 as std::ffi::c_int) {
@@ -365,7 +364,7 @@ pub unsafe extern "C" fn back(
         home();
         add_line();
         put_line(LFALSE);
-        if stop_on_form_feed != 0 && line_is_ff() as std::ffi::c_uint != 0 {
+        if opts.stop_on_form_feed != 0 && line_is_ff() as std::ffi::c_uint != 0 {
             break;
         }
     }
@@ -452,13 +451,14 @@ pub unsafe extern "C" fn backward(
 }
 #[no_mangle]
 pub unsafe extern "C" fn get_back_scroll() -> std::ffi::c_int {
+    let opts = get_options();
     if no_back_scroll != 0 {
         return 0 as std::ffi::c_int;
     }
-    if back_scroll >= 0 as std::ffi::c_int {
-        return back_scroll;
+    if opts.back_scroll >= 0 as std::ffi::c_int {
+        return opts.back_scroll;
     }
-    if top_scroll != 0 {
+    if opts.top_scroll != 0 {
         return sc_height - 2 as std::ffi::c_int;
     }
     return 10000 as std::ffi::c_int;

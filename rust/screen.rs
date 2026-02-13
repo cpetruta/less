@@ -1,5 +1,6 @@
 use crate::decode::lgetenv;
 use crate::defs::*;
+use crate::opttbl::get_options;
 use crate::util::ptr_to_str;
 use std::ffi::CStr;
 use std::ffi::CString;
@@ -72,19 +73,8 @@ extern "C" {
     static mut binattr: std::ffi::c_int;
     static mut one_screen: std::ffi::c_int;
     static mut shell_lines: std::ffi::c_int;
-    static mut quiet: std::ffi::c_int;
-    static mut no_vbell: std::ffi::c_int;
     static mut no_back_scroll: std::ffi::c_int;
-    static mut no_init: std::ffi::c_int;
-    static mut no_keypad: std::ffi::c_int;
-    static mut top_scroll: std::ffi::c_int;
-    static mut quit_if_one_screen: std::ffi::c_int;
-    static mut oldbot: std::ffi::c_int;
-    static mut mousecap: std::ffi::c_int;
     static mut is_tty: std::ffi::c_int;
-    static mut use_color: std::ffi::c_int;
-    static mut no_paste: std::ffi::c_int;
-    static mut hilite_search: std::ffi::c_int;
     static mut tty: std::ffi::c_int;
 }
 pub type COLOR_TYPE = std::ffi::c_uint;
@@ -572,6 +562,7 @@ pub unsafe extern "C" fn special_key_str(key: u8) -> Option<&'static str> {
  */
 #[no_mangle]
 pub unsafe extern "C" fn get_term() {
+    let opts = get_options();
     termcap_debug = lgetenv("LESS_TERMCAP_DEBUG").is_err();
     let mut sp: *mut std::ffi::c_char = 0 as *mut std::ffi::c_char;
     let mut t1: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
@@ -612,7 +603,7 @@ pub unsafe extern "C" fn get_term() {
     bl_e_width = so_s_width;
     bl_s_width = bl_e_width;
     if so_s_width > 0 as std::ffi::c_int || so_e_width > 0 as std::ffi::c_int {
-        hilite_search = 0 as std::ffi::c_int;
+        opts.hilite_search = 0 as std::ffi::c_int;
     }
     sp = sbuf.as_mut_ptr();
     sc_pad = ltgetstr(b"pc\0" as *const u8 as *const std::ffi::c_char, &mut sp);
@@ -928,9 +919,10 @@ pub unsafe extern "C" fn deinit_mouse() {
 }
 #[no_mangle]
 pub unsafe extern "C" fn init() {
+    let opts = get_options();
     clear_bot_if_needed();
-    if !(quit_if_one_screen != 0 && one_screen != 0) {
-        if no_init == 0 {
+    if !(opts.quit_if_one_screen != 0 && one_screen != 0) {
+        if opts.no_init == 0 {
             ltputs(
                 sc_init,
                 sc_height,
@@ -944,22 +936,22 @@ pub unsafe extern "C" fn init() {
             }
             term_init_done = LTRUE;
         }
-        if no_keypad == 0 {
+        if opts.no_keypad == 0 {
             ltputs(
                 sc_s_keypad,
                 sc_height,
                 Some(putchr as unsafe extern "C" fn(std::ffi::c_int) -> std::ffi::c_int),
             );
         }
-        if mousecap != 0 {
+        if opts.mousecap != 0 {
             init_mouse();
         }
-        if no_paste != 0 {
+        if opts.no_paste != 0 {
             init_bracketed_paste();
         }
     }
     init_done = 1 as std::ffi::c_int;
-    if top_scroll != 0 {
+    if opts.top_scroll != 0 {
         let mut i: std::ffi::c_int = 0;
         i = 1 as std::ffi::c_int;
         while i < sc_height {
@@ -972,24 +964,25 @@ pub unsafe extern "C" fn init() {
 }
 #[no_mangle]
 pub unsafe extern "C" fn deinit() {
+    let opts = get_options();
     if init_done == 0 {
         return;
     }
-    if !(quit_if_one_screen != 0 && one_screen != 0) {
-        if mousecap != 0 {
+    if !(opts.quit_if_one_screen != 0 && one_screen != 0) {
+        if opts.mousecap != 0 {
             deinit_mouse();
         }
-        if no_paste != 0 {
+        if opts.no_paste != 0 {
             deinit_bracketed_paste();
         }
-        if no_keypad == 0 {
+        if opts.no_keypad == 0 {
             ltputs(
                 sc_e_keypad,
                 sc_height,
                 Some(putchr as unsafe extern "C" fn(std::ffi::c_int) -> std::ffi::c_int),
             );
         }
-        if no_init == 0 {
+        if opts.no_init == 0 {
             ltputs(
                 sc_deinit,
                 sc_height,
@@ -1057,7 +1050,8 @@ pub unsafe extern "C" fn goto_line(mut sindex: std::ffi::c_int) {
 }
 #[no_mangle]
 pub unsafe extern "C" fn vbell() {
-    if no_vbell != 0 {
+    let opts = get_options();
+    if opts.no_vbell != 0 {
         return;
     }
     if *sc_visual_bell as std::ffi::c_int == '\0' as i32 {
@@ -1074,7 +1068,8 @@ unsafe extern "C" fn beep() {
 }
 #[no_mangle]
 pub unsafe extern "C" fn bell() {
-    if quiet == 2 as std::ffi::c_int {
+    let opts = get_options();
+    if opts.quiet == 2 as std::ffi::c_int {
         vbell();
     } else {
         beep();
@@ -1115,7 +1110,8 @@ unsafe extern "C" fn clear_eol_bot() {
 }
 #[no_mangle]
 pub unsafe extern "C" fn clear_bot() {
-    if oldbot != 0 {
+    let opts = get_options();
+    if opts.oldbot != 0 {
         lower_left();
     } else {
         line_left();
@@ -1446,6 +1442,7 @@ unsafe extern "C" fn tput_outmode(
 }
 #[no_mangle]
 pub unsafe extern "C" fn at_enter(mut attr: std::ffi::c_int) {
+    let opts = get_options();
     attr = apply_at_specials(attr);
     tput_inmode(
         sc_u_in,
@@ -1465,7 +1462,7 @@ pub unsafe extern "C" fn at_enter(mut attr: std::ffi::c_int) {
         (1 as std::ffi::c_int) << 2 as std::ffi::c_int,
         Some(putchr as unsafe extern "C" fn(std::ffi::c_int) -> std::ffi::c_int),
     );
-    if use_color != 0
+    if opts.use_color != 0
         && attr & (16 as std::ffi::c_int - 1 as std::ffi::c_int) << 8 as std::ffi::c_int != 0
     {
         tput_color(

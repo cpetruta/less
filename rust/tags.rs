@@ -1,5 +1,6 @@
 use crate::decode::lgetenv;
 use crate::defs::*;
+use crate::opttbl::get_options;
 use crate::signal::sigs;
 use ::c2rust_bitfields;
 use std::ffi::CString;
@@ -67,8 +68,6 @@ extern "C" {
         errp: *mut lbool,
     ) -> std::ffi::c_int;
     fn error(fmt: *const std::ffi::c_char, parg: *mut PARG);
-    static mut linenums: std::ffi::c_int;
-    static mut ctldisp: std::ffi::c_int;
 }
 #[derive(Copy, Clone, BitfieldStruct)]
 #[repr(C)]
@@ -490,10 +489,11 @@ unsafe extern "C" fn ctagsearch() -> POSITION {
             );
             return -(1 as std::ffi::c_int) as POSITION;
         }
-        if linenums != 0 {
+        let opts = get_options();
+        if opts.linenums != 0 {
             add_lnum(linenum, pos);
         }
-        if ctldisp != 2 as std::ffi::c_int {
+        if opts.ctldisp != 2 as std::ffi::c_int {
             if curtag_match(line, linepos) != 0 {
                 found = 1 as std::ffi::c_int;
             }

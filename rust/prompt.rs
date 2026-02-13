@@ -4,6 +4,7 @@ use crate::filename::{last_component, shell_quote};
 use crate::forwback::eof_displayed;
 use crate::ifile::{IFileHandle, IFileManager};
 use crate::linenum::currline;
+use crate::opttbl::get_options;
 use std::sync::LazyLock;
 
 extern "C" {
@@ -30,14 +31,9 @@ extern "C" {
     fn sindex_from_sline(sline: std::ffi::c_int) -> std::ffi::c_int;
     fn ntags() -> std::ffi::c_int;
     fn curr_tag() -> std::ffi::c_int;
-    static mut pr_type: std::ffi::c_int;
     static mut new_file: bool;
-    static mut linenums: std::ffi::c_int;
     static mut hshift: std::ffi::c_int;
     static mut sc_height: std::ffi::c_int;
-    static mut jump_sline: std::ffi::c_int;
-    static mut less_is_more: std::ffi::c_int;
-    static mut header_lines: std::ffi::c_int;
     static mut utf_mode: std::ffi::c_int;
     static mut curr_ifile: Option<IFileHandle>;
     static mut osc8_path: Option<String>;
@@ -83,8 +79,9 @@ static mut mp: *mut std::ffi::c_char = 0 as *const std::ffi::c_char as *mut std:
  */
 #[no_mangle]
 pub unsafe extern "C" fn init_prompt() {
+    let opts = get_options();
     prproto[0] = s_proto.clone();
-    prproto[1] = if less_is_more != 0 {
+    prproto[1] = if opts.less_is_more != 0 {
         more_proto.clone()
     } else {
         m_proto.clone()
@@ -169,6 +166,7 @@ unsafe extern "C" fn curr_byte(mut wh: std::ffi::c_int) -> POSITION {
  * Here we decode that letter and return the appropriate boolean value.
  */
 unsafe extern "C" fn cond(ifiles: &mut IFileManager, c: u8, wh: i32) -> bool {
+    let opts = get_options();
     let mut len: POSITION = 0;
     match c {
         /* Anything in the message yet? */
@@ -188,7 +186,7 @@ unsafe extern "C" fn cond(ifiles: &mut IFileManager, c: u8, wh: i32) -> bool {
           b'l' /* Line number known? */
         | b'd' /* Same as l */
          => {
-            if linenums == 0 {
+            if opts.linenums == 0 {
                 return false;
             }
             return currline(wh) != 0;
@@ -196,7 +194,7 @@ unsafe extern "C" fn cond(ifiles: &mut IFileManager, c: u8, wh: i32) -> bool {
           b'L' /* Final line number known? */
         | b'D' /* Final page number known? */
         => {
-            return linenums != 0 && ch_length() != NULL_POSITION;
+            return opts.linenums != 0 && ch_length() != NULL_POSITION;
         }
         b'm' => {
             /* More than one file? */
@@ -258,6 +256,7 @@ fn page_num(linenum: LINENUM, height: i32, head_lines: i32) -> i64 {
  * usually by appending something to the message being built.
  */
 unsafe extern "C" fn protochar(ifiles: &mut IFileManager, c: u8, wh: i32) {
+    let opts = get_options();
     let mut pos: POSITION = 0;
     let mut len: POSITION = 0;
     let mut linenum: LINENUM = 0;
@@ -280,8 +279,8 @@ unsafe extern "C" fn protochar(ifiles: &mut IFileManager, c: u8, wh: i32) {
         b'd' => {
             /* Current page number */
             linenum = currline(wh);
-            if linenum > 0 && sc_height > header_lines + 1 {
-                ap_linenum(page_num(linenum, sc_height, header_lines));
+            if linenum > 0 && sc_height > opts.header_lines + 1 {
+                ap_linenum(page_num(linenum, sc_height, opts.header_lines));
             } else {
                 ap_quest();
             }
@@ -300,7 +299,7 @@ unsafe extern "C" fn protochar(ifiles: &mut IFileManager, c: u8, wh: i32) {
                 if linenum <= 0 {
                     ap_quest();
                 } else {
-                    ap_linenum(page_num(linenum, sc_height, header_lines));
+                    ap_linenum(page_num(linenum, sc_height, opts.header_lines));
                 }
             }
         }
@@ -501,6 +500,7 @@ unsafe extern "C" fn skipcond(p: &str) -> &str {
  * Decode a char that represents a position on the screen.
  */
 unsafe extern "C" fn wherechar<'a>(p: &'a str, wp: &mut i32) -> &'a str {
+    let opts = get_options();
     let ret = p;
     match p.chars().next() {
         Some('b') | Some('d') | Some('l') | Some('p') | Some('P') => match p.chars().next() {
@@ -517,7 +517,7 @@ unsafe extern "C" fn wherechar<'a>(p: &'a str, wp: &mut i32) -> &'a str {
                 *wp = BOTTOM_PLUS_ONE;
             }
             Some('j') => {
-                *wp = sindex_from_sline(jump_sline);
+                *wp = sindex_from_sline(opts.jump_sline);
             }
             _ => {
                 *wp = 0;
@@ -533,6 +533,7 @@ unsafe extern "C" fn wherechar<'a>(p: &'a str, wp: &mut i32) -> &'a str {
  */
 #[no_mangle]
 pub unsafe extern "C" fn pr_expand(ifiles: &mut IFileManager, proto: &str) -> String {
+    let opts = get_options();
     let mut p = "";
     let mut c: u8 = 0;
     let mut wh = 0;
@@ -601,9 +602,10 @@ pub unsafe extern "C" fn eq_message(ifiles: &mut IFileManager) -> String {
  */
 #[no_mangle]
 pub unsafe extern "C" fn pr_string(ifiles: &mut IFileManager) -> String {
-    let ty = if less_is_more == 0 {
-        pr_type
-    } else if pr_type != 0 {
+    let opts = get_options();
+    let ty = if opts.less_is_more == 0 {
+        opts.pr_type
+    } else if opts.pr_type != 0 {
         0
     } else {
         1
