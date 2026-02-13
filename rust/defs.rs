@@ -152,6 +152,28 @@ pub const PR_SHORT: usize = 0; /* Prompt with colon */
 pub const PR_MEDIUM: usize = 1; /* Prompt with message */
 pub const PR_LONG: usize = 2; /* Prompt with longer message */
 
+pub const QUIT_SAVED_STATUS: i32 = -1;
+
+/* These values must not conflict with any A_* or EC_* value. */
+pub const A_INVALID: i32 = 100;
+pub const A_NOACTION: i32 = 101;
+pub const A_UINVALID: i32 = 102;
+pub const A_END_LIST: i32 = 103;
+pub const A_SPECIAL_KEY: i32 = 104;
+pub const A_PREFIX: i32 = 105;
+pub const A_SKIP: i32 = 127;
+
+pub const A_EXTRA: i32 = 0o200;
+
+pub const NO_MCA: i32 = 0;
+pub const MCA_DONE: i32 = 1;
+pub const MCA_MORE: i32 = 2;
+
+pub const CC_OK: i32 = 0; /* Char was accepted & processed */
+pub const CC_QUIT: i32 = 1; /* Char was a request to abort current cmd */
+pub const CC_ERROR: i32 = 2; /* Char could not be accepted due to error */
+pub const CC_PASS: i32 = 3; /* Char was rejected (internal) */
+
 #[inline]
 pub fn CONTROL(c: char) -> char {
     ((c as u8) & 0o37) as char

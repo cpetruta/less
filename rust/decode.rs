@@ -120,92 +120,182 @@ static mut allow_drag: bool = true;
 const MAX_USERCMD: u32 = 1000;
 const MAX_CMDLEN: usize = 16;
 
-const A_B_LINE: u8 = 2;
-const A_B_SCREEN: u8 = 3;
-const A_B_SCROLL: u8 = 4;
-const A_B_SEARCH: u8 = 5;
-const A_DIGIT: u8 = 6;
-const A_DISP_OPTION: u8 = 7;
-const A_DEBUG: u8 = 8;
-const A_EXAMINE: u8 = 9;
-const A_FIRSTCMD: u8 = 10;
-const A_FREPAINT: u8 = 11;
-const A_F_LINE: u8 = 12;
-const A_F_SCREEN: u8 = 13;
-const A_F_SCROLL: u8 = 14;
-const A_F_SEARCH: u8 = 15;
-const A_GOEND: u8 = 16;
-const A_GOLINE: u8 = 17;
-const A_GOMARK: u8 = 18;
-const A_HELP: u8 = 19;
-const A_NEXT_FILE: u8 = 20;
-const A_PERCENT: u8 = 21;
-const A_BF_SCREEN: u8 = 22;
-const A_PREV_FILE: u8 = 23;
-const A_QUIT: u8 = 24;
-const A_REPAINT: u8 = 25;
-const A_SETMARK: u8 = 26;
-const A_SHELL: u8 = 27;
-const A_STAT: u8 = 28;
-const A_FF_LINE: u8 = 29;
-const A_BF_LINE: u8 = 30;
-const A_VERSION: u8 = 31;
-const A_VISUAL: u8 = 32;
-const A_F_WINDOW: u8 = 33;
-const A_B_WINDOW: u8 = 34;
-const A_F_BRACKET: u8 = 35;
-const A_B_BRACKET: u8 = 36;
-const A_PIPE: u8 = 37;
-const A_INDEX_FILE: u8 = 38;
-const A_UNDO_SEARCH: u8 = 39;
-const A_FF_SCREEN: u8 = 40;
-const A_LSHIFT: u8 = 41;
-const A_RSHIFT: u8 = 42;
-const A_AGAIN_SEARCH: u8 = 43;
-const A_T_AGAIN_SEARCH: u8 = 44;
-const A_REVERSE_SEARCH: u8 = 45;
-const A_T_REVERSE_SEARCH: u8 = 46;
-const A_OPT_TOGGLE: u8 = 47;
-const A_OPT_SET: u8 = 48;
-const A_OPT_UNSET: u8 = 49;
-const A_F_FOREVER: u8 = 50;
-const A_GOPOS: u8 = 51;
-const A_REMOVE_FILE: u8 = 52;
-const A_NEXT_TAG: u8 = 53;
-const A_PREV_TAG: u8 = 54;
-const A_FILTER: u8 = 55;
-const A_F_UNTIL_HILITE: u8 = 56;
-const A_GOEND_BUF: u8 = 57;
-const A_LLSHIFT: u8 = 58;
-const A_RRSHIFT: u8 = 59;
-const A_F_NEWLINE: u8 = 60;
-const A_B_NEWLINE: u8 = 61;
-const A_CLRMARK: u8 = 62;
-const A_SETMARKBOT: u8 = 63;
-const A_X11MOUSE_IN: u8 = 64;
-const A_F_MOUSE: u8 = 66;
-const A_B_MOUSE: u8 = 67;
+#[derive(PartialEq)]
+pub enum ActionType {
+    BLine,
+    BScreen,
+    BScroll,
+    BSearch,
+    Digit,
+    DispOption,
+    Debug,
+    Examine,
+    FirstCmd,
+    FRepaint,
+    FLine,
+    FScreen,
+    FScroll,
+    FSearch,
+    GoEnd,
+    GoLine,
+    GoMark,
+    Help,
+    NextFile,
+    Percent,
+    BFScreen,
+    PrevFile,
+    Quit,
+    Repaint,
+    Setmark,
+    Shell,
+    Stat,
+    FFLine,
+    BFLine,
+    Version,
+    Visual,
+    FWindow,
+    BWindow,
+    FBracket,
+    BBracket,
+    Pipe,
+    IndexFile,
+    UndoSearch,
+    FFScreen,
+    LShift,
+    RShift,
+    AgainSearch,
+    TAgainSearch,
+    ReverseSearch,
+    TReverseSearch,
+    OptToggle,
+    OptSet,
+    OptUnset,
+    FForever,
+    GoPos,
+    RemoveFile,
+    NextTag,
+    PrevTag,
+    Filter,
+    FUntilHilite,
+    GoEndBuf,
+    LLShift,
+    RRShift,
+    FNewline,
+    BNewline,
+    ClrMark,
+    SetMarkBot,
+    X11MouseIn,
+    FMouse,
+    BMouse,
+    /* note "x116" refers to extended (1006) x11 mouse reporting. */
+    X116MouseIn,
+    PShell,
+    ClrSearch,
+    Osc8FSearch,
+    Osc8BSearch,
+    Osc8Open,
+    Osc8Jump,
+    StartPaste,
+    EndPaste,
+
+    /* These values must not conflict with any A_* or EC_* value. */
+    Invalid,
+    NoAction,
+    UInvalid,
+    EndList,
+    SpecialKey,
+    Prefix,
+    Skip,
+
+    Extra,
+}
+
+pub const A_B_LINE: u8 = 2;
+pub const A_B_SCREEN: u8 = 3;
+pub const A_B_SCROLL: u8 = 4;
+pub const A_B_SEARCH: u8 = 5;
+pub const A_DIGIT: u8 = 6;
+pub const A_DISP_OPTION: u8 = 7;
+pub const A_DEBUG: u8 = 8;
+pub const A_EXAMINE: u8 = 9;
+pub const A_FIRSTCMD: u8 = 10;
+pub const A_FREPAINT: u8 = 11;
+pub const A_F_LINE: u8 = 12;
+pub const A_F_SCREEN: u8 = 13;
+pub const A_F_SCROLL: u8 = 14;
+pub const A_F_SEARCH: u8 = 15;
+pub const A_GOEND: u8 = 16;
+pub const A_GOLINE: u8 = 17;
+pub const A_GOMARK: u8 = 18;
+pub const A_HELP: u8 = 19;
+pub const A_NEXT_FILE: u8 = 20;
+pub const A_PERCENT: u8 = 21;
+pub const A_BF_SCREEN: u8 = 22;
+pub const A_PREV_FILE: u8 = 23;
+pub const A_QUIT: u8 = 24;
+pub const A_REPAINT: u8 = 25;
+pub const A_SETMARK: u8 = 26;
+pub const A_SHELL: u8 = 27;
+pub const A_STAT: u8 = 28;
+pub const A_FF_LINE: u8 = 29;
+pub const A_BF_LINE: u8 = 30;
+pub const A_VERSION: u8 = 31;
+pub const A_VISUAL: u8 = 32;
+pub const A_F_WINDOW: u8 = 33;
+pub const A_B_WINDOW: u8 = 34;
+pub const A_F_BRACKET: u8 = 35;
+pub const A_B_BRACKET: u8 = 36;
+pub const A_PIPE: u8 = 37;
+pub const A_INDEX_FILE: u8 = 38;
+pub const A_UNDO_SEARCH: u8 = 39;
+pub const A_FF_SCREEN: u8 = 40;
+pub const A_LSHIFT: u8 = 41;
+pub const A_RSHIFT: u8 = 42;
+pub const A_AGAIN_SEARCH: u8 = 43;
+pub const A_T_AGAIN_SEARCH: u8 = 44;
+pub const A_REVERSE_SEARCH: u8 = 45;
+pub const A_T_REVERSE_SEARCH: u8 = 46;
+pub const A_OPT_TOGGLE: u8 = 47;
+pub const A_OPT_SET: u8 = 48;
+pub const A_OPT_UNSET: u8 = 49;
+pub const A_F_FOREVER: u8 = 50;
+pub const A_GOPOS: u8 = 51;
+pub const A_REMOVE_FILE: u8 = 52;
+pub const A_NEXT_TAG: u8 = 53;
+pub const A_PREV_TAG: u8 = 54;
+pub const A_FILTER: u8 = 55;
+pub const A_F_UNTIL_HILITE: u8 = 56;
+pub const A_GOEND_BUF: u8 = 57;
+pub const A_LLSHIFT: u8 = 58;
+pub const A_RRSHIFT: u8 = 59;
+pub const A_F_NEWLINE: u8 = 60;
+pub const A_B_NEWLINE: u8 = 61;
+pub const A_CLRMARK: u8 = 62;
+pub const A_SETMARKBOT: u8 = 63;
+pub const A_X11MOUSE_IN: u8 = 64;
+pub const A_F_MOUSE: u8 = 66;
+pub const A_B_MOUSE: u8 = 67;
 /* Note "X116" refers to extended (1006) X11 mouse reporting. */
-const A_X116MOUSE_IN: u8 = 68;
-const A_PSHELL: u8 = 69;
-const A_CLR_SEARCH: u8 = 70;
-const A_OSC8_F_SEARCH: u8 = 71;
-const A_OSC8_B_SEARCH: u8 = 72;
-const A_OSC8_OPEN: u8 = 73;
-const A_OSC8_JUMP: u8 = 74;
-const A_START_PASTE: u8 = 75; /* must not overlap EC_* */
-const A_END_PASTE: u8 = 76; /* must not overlap EC_* */
+pub const A_X116MOUSE_IN: u8 = 68;
+pub const A_PSHELL: u8 = 69;
+pub const A_CLR_SEARCH: u8 = 70;
+pub const A_OSC8_F_SEARCH: u8 = 71;
+pub const A_OSC8_B_SEARCH: u8 = 72;
+pub const A_OSC8_OPEN: u8 = 73;
+pub const A_OSC8_JUMP: u8 = 74;
+pub const A_START_PASTE: u8 = 75; /* must not overlap EC_* */
+pub const A_END_PASTE: u8 = 76; /* must not overlap EC_* */
 
 /* These values must not conflict with any A_* or EC_* value. */
-const A_INVALID: u8 = 100;
-const A_NOACTION: u8 = 101;
-const A_UINVALID: u8 = 102;
-const A_END_LIST: u8 = 103;
-const A_SPECIAL_KEY: u8 = 104;
-const A_PREFIX: u8 = 105;
-const A_SKIP: u8 = 127;
+pub const A_INVALID: u8 = 100;
+pub const A_NOACTION: u8 = 101;
+pub const A_UINVALID: u8 = 102;
+pub const A_END_LIST: u8 = 103;
+pub const A_SPECIAL_KEY: u8 = 104;
+pub const A_PREFIX: u8 = 105;
+pub const A_SKIP: u8 = 127;
 
-const A_EXTRA: u8 = 0o200;
+pub const A_EXTRA: u8 = 0o200;
 
 /* Special keys (keys which output different strings on different terminals) */
 const SK_RIGHT_ARROW: u8 = 1;
@@ -1612,7 +1702,7 @@ pub unsafe extern "C" fn editchar(tables: &Tables, c: u8, flags: i32) -> i32 {
             ungetcc(usercmd[nch as usize] as i8);
         }
     } else if !sidx.is_none() {
-            ungetsc(tables.ecmd_tables[sidx.unwrap().1].table[sidx.unwrap().0..].as_ptr() as *const i8);
+        ungetsc(tables.ecmd_tables[sidx.unwrap().1].table[sidx.unwrap().0..].as_ptr() as *const i8);
     }
     return action;
 }
@@ -1629,7 +1719,5 @@ pub fn set_tables(tables: *mut Tables) {
 }
 
 pub fn get_tables_mut() -> Option<&'static mut Tables> {
-    unsafe {
-        TABLES.map(|p| &mut *p)
-    }
+    unsafe { TABLES.map(|p| &mut *p) }
 }

@@ -1,15 +1,20 @@
 use crate::charset::init_charset;
+use crate::command::commands;
 use crate::decode::{expand_cmd_tables, init_cmds, set_tables, Tables};
 use crate::decode::{isnullenv, lgetenv};
 use crate::defs::*;
 use crate::edit::edit_first;
+use crate::filename::last_component;
 use crate::ifile::{IFile, IFileHandle, IFileManager};
 use crate::line::init_line;
 use crate::mark::Marks;
 use crate::optfunc::opt_header;
 use crate::opttbl::get_options;
+use crate::output::set_output;
 use std::env;
 use std::ffi::CString;
+use std::path::Path;
+
 extern "C" {
     fn snprintf(
         _: *mut std::ffi::c_char,
@@ -42,12 +47,10 @@ extern "C" {
     fn clear_bot();
     fn init_cmdhist();
     fn save_cmdhist();
-    fn commands();
     fn check_altpipe_error();
     fn edit(filename: *const std::ffi::c_char) -> std::ffi::c_int;
     fn edit_next(n: std::ffi::c_int) -> std::ffi::c_int;
     fn cat_file();
-    fn last_component(name: *const std::ffi::c_char) -> *const std::ffi::c_char;
     fn get_one_screen() -> lbool;
     fn nifile() -> std::ffi::c_int;
     fn repaint();
@@ -59,7 +62,6 @@ extern "C" {
     fn init_poll();
     fn get_time() -> time_t;
     fn flush();
-    fn set_output(fd: std::ffi::c_int);
     fn putchr(ch: std::ffi::c_int) -> std::ffi::c_int;
     fn less_printf(fmt: *const std::ffi::c_char, parg: *mut PARG) -> std::ffi::c_int;
     fn get_return();
@@ -130,9 +132,9 @@ pub static mut force_logfile: lbool = LFALSE;
 #[no_mangle]
 pub static mut namelogfile: Option<String> = None;
 #[no_mangle]
-pub static mut editor: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
+pub static mut editor: Option<String> = None;
 #[no_mangle]
-pub static mut editproto: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
+pub static mut editproto: Option<String> = None;
 #[no_mangle]
 pub static mut less_start_time: time_t = 0;
 #[no_mangle]
@@ -394,19 +396,18 @@ unsafe fn main_0() -> i32 {
     init_cmdhist();
     init_option();
     init_search();
-    if strcmp(
-        last_component(CString::new(progname.clone()).unwrap().as_ptr()),
-        b"more\0" as *const u8 as *const std::ffi::c_char,
-    ) == 0 as std::ffi::c_int
-        && lgetenv("LESS_IS_MORE").is_err()
-    {
+    if last_component(Path::new(&progname)) == "more" && lgetenv("LESS_IS_MORE").is_err() {
         let opts = get_options();
         opts.less_is_more = 1;
     }
     init_prompt();
     init_unsupport();
     let opts = get_options();
-    let ss = lgetenv(if opts.less_is_more != 0 { "MORE" } else { "LESS" });
+    let ss = lgetenv(if opts.less_is_more != 0 {
+        "MORE"
+    } else {
+        "LESS"
+    });
     if ss.is_err() {
         scan_option(s, LTRUE);
     } else {
@@ -431,18 +432,18 @@ unsafe fn main_0() -> i32 {
     if ed.is_err() {
         let edit = lgetenv("EDITOR");
         if edit.is_ok() {
-            editor = CString::new(edit.unwrap()).unwrap().as_ptr();
+            editor = edit.ok();
         } else {
-            editor = b"vi\0" as *const u8 as *const std::ffi::c_char;
+            editor = Some(String::from("vi"));
         }
     } else {
-        editor = CString::new(ed.unwrap()).unwrap().as_ptr();
+        editor = ed.ok();
     }
     let editp = lgetenv("LESSEDIT");
     if editp.is_err() {
-        editproto = b"%E ?lm+%lm. %g\0" as *const u8 as *const std::ffi::c_char;
+        editproto = Some(String::from("%E ?lm+%lm. %g"));
     } else {
-        editproto = CString::new(editp.unwrap()).unwrap().as_ptr();
+        editproto = editp.ok();
     }
 
     /*
@@ -457,7 +458,7 @@ unsafe fn main_0() -> i32 {
         ifile = ifiles.prev_ifile(None);
     }
     if is_tty == 0 {
-        set_output(1 as std::ffi::c_int);
+        set_output(1);
         if edit_first(&mut ifiles) == 0 {
             loop {
                 cat_file();
@@ -523,11 +524,12 @@ unsafe fn main_0() -> i32 {
         get_return();
         putchr('\n' as i32);
     }
-    set_output(1 as std::ffi::c_int);
+    set_output(1);
     init();
-    commands();
-    quit(0 as std::ffi::c_int);
-    return 0 as std::ffi::c_int;
+    let opts = get_options();
+    commands(opts);
+    quit(0);
+    return 0;
 }
 
 /*
