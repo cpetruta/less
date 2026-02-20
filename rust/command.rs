@@ -1,5 +1,10 @@
+use crate::cmdbuf::cmd_char;
+use crate::decode::fcmd_decode;
+use crate::decode::ActionType;
+use crate::decode::{editchar, get_tables_mut};
 use crate::defs::*;
 use crate::line::load_line;
+use crate::mark::Marks;
 use crate::opttbl::get_options;
 use crate::opttbl::Options;
 use std::ffi::CStr;
@@ -45,15 +50,9 @@ extern "C" {
     fn save_updown_match() -> ssize_t;
     fn restore_updown_match(udm: ssize_t);
     fn cmd_accept();
-    fn cmd_char(c: std::ffi::c_char) -> std::ffi::c_int;
     fn cmd_setstring(s: *const std::ffi::c_char, uc: lbool) -> std::ffi::c_int;
     fn cmd_int(frac: *mut std::ffi::c_long) -> LINENUM;
     fn get_cmdbuf() -> *const std::ffi::c_char;
-    fn fcmd_decode(
-        cmd: *const std::ffi::c_char,
-        sp: *mut *const std::ffi::c_char,
-    ) -> std::ffi::c_int;
-    fn editchar(c: std::ffi::c_char, flags: std::ffi::c_int) -> std::ffi::c_int;
     fn edit(filename: *const std::ffi::c_char) -> std::ffi::c_int;
     fn edit_ifile(ifile: *mut std::ffi::c_void) -> std::ffi::c_int;
     fn edit_list(filelist: *mut std::ffi::c_char) -> std::ffi::c_int;
@@ -89,10 +88,6 @@ extern "C" {
     fn clr_linenum();
     fn lsystem(cmd: *const std::ffi::c_char, donemsg: *const std::ffi::c_char);
     fn pipe_mark(c: std::ffi::c_char, cmd: *const std::ffi::c_char) -> std::ffi::c_int;
-    fn badmark(c: std::ffi::c_char) -> std::ffi::c_int;
-    fn setmark(c: std::ffi::c_char, where_0: std::ffi::c_int);
-    fn clrmark(c: std::ffi::c_char);
-    fn gomark(c: std::ffi::c_char);
     fn get_swindow() -> std::ffi::c_int;
     fn propt(c: std::ffi::c_char) -> *const std::ffi::c_char;
     fn toggle_option(
@@ -106,11 +101,6 @@ extern "C" {
     fn opt_toggle_disallowed(c: std::ffi::c_int) -> *const std::ffi::c_char;
     fn get_quit_at_eof() -> std::ffi::c_int;
     fn findopt(c: std::ffi::c_int) -> *mut loption;
-    fn findopt_name(
-        p_optname: *mut *const std::ffi::c_char,
-        p_oname: *mut *const std::ffi::c_char,
-        p_ambig: *mut lbool,
-    ) -> *mut loption;
     fn get_time() -> time_t;
     fn put_line(forw_scroll: lbool);
     fn flush();
@@ -146,15 +136,15 @@ extern "C" {
     fn nexttag(n: std::ffi::c_int) -> *const std::ffi::c_char;
     fn prevtag(n: std::ffi::c_int) -> *const std::ffi::c_char;
     fn ntags() -> std::ffi::c_int;
-    fn getchr() -> std::ffi::c_int;
-    static mut erase_char: std::ffi::c_int;
-    static mut erase2_char: std::ffi::c_int;
-    static mut kill_char: std::ffi::c_int;
-    static mut sigs: std::ffi::c_int;
+    fn getchr() -> i32;
+    static mut erase_char: char;
+    static mut erase2_char: char;
+    static mut kill_char: char;
+    static mut sigs: i32;
     static mut one_screen: std::ffi::c_int;
     static mut sc_width: std::ffi::c_int;
     static mut sc_height: std::ffi::c_int;
-    static mut kent: *mut std::ffi::c_char;
+    static mut kent: String;
     static mut quitting: lbool;
     static mut wscroll: std::ffi::c_int;
     static mut ignore_eoi: std::ffi::c_int;
@@ -208,52 +198,51 @@ pub struct optname {
     pub oname: *const std::ffi::c_char,
     pub onext: *mut optname,
 }
-#[derive(Copy, Clone)]
-#[repr(C)]
-pub struct ungot {
-    pub ug_next: *mut ungot,
-    pub ug_char: std::ffi::c_char,
-    pub ug_end_command: lbool,
+pub struct Char {
+    pub ch: char,
+    pub end_command: bool,
+}
+pub struct Ungot {
+    chars: Vec<Char>,
 }
 static mut shellcmd: *mut std::ffi::c_char = 0 as *const std::ffi::c_char as *mut std::ffi::c_char;
-static mut mca: std::ffi::c_int = 0;
+static mut mca: ActionType = ActionType::Null;
 static mut search_type: std::ffi::c_int = 0;
 static mut last_search_type: std::ffi::c_int = 0;
 static mut number: LINENUM = 0;
 static mut fraction: std::ffi::c_long = 0;
-static mut curropt: *mut loption = 0 as *const loption as *mut loption;
-static mut opt_lower: lbool = LFALSE;
+static mut curropt: Option<LOption> = None;
+static mut opt_lower: bool = false;
 static mut optflag: std::ffi::c_int = 0;
-static mut optgetname: lbool = LFALSE;
+static mut optgetname: bool = false;
 static mut bottompos: POSITION = 0;
 static mut save_hshift: std::ffi::c_int = 0;
 static mut save_bs_mode: std::ffi::c_int = 0;
 static mut save_proc_backspace: std::ffi::c_int = 0;
 static mut screen_trashed_value: std::ffi::c_int = 0 as std::ffi::c_int;
-static mut literal_char: lbool = LFALSE;
+static mut literal_char: bool = false;
 static mut ignoring_input: lbool = LFALSE;
 static mut ignoring_input_time: time_t = 0;
-static mut pipec: std::ffi::c_char = 0;
-static mut ungot: *mut ungot = 0 as *const ungot as *mut ungot;
+static mut pipec: char = ' ';
 #[no_mangle]
 pub unsafe extern "C" fn cmd_exec() {
     clear_attn();
     clear_bot();
     flush();
 }
-unsafe extern "C" fn set_mca(mut action: std::ffi::c_int) {
+unsafe extern "C" fn set_mca(action: ActionType) {
     mca = action;
     clear_bot();
     clear_cmd();
 }
 unsafe extern "C" fn clear_mca() {
-    if mca == 0 as std::ffi::c_int {
+    if mca == ActionType::Null {
         return;
     }
-    mca = 0 as std::ffi::c_int;
+    mca = ActionType::Null;
 }
 unsafe extern "C" fn start_mca(
-    mut action: std::ffi::c_int,
+    action: ActionType,
     mut prompt_0: *const std::ffi::c_char,
     mut mlist: *mut std::ffi::c_void,
     mut cmdflags: std::ffi::c_int,
@@ -263,38 +252,40 @@ unsafe extern "C" fn start_mca(
     set_mlist(mlist, cmdflags);
 }
 #[no_mangle]
-pub unsafe extern "C" fn in_mca() -> std::ffi::c_int {
-    return (mca != 0 as std::ffi::c_int && mca != 105 as std::ffi::c_int) as std::ffi::c_int;
+pub unsafe extern "C" fn in_mca() -> bool {
+    mca != ActionType::Null && mca != ActionType::Prefix
 }
+
+/// Set up the display to start a new search command.
 unsafe extern "C" fn mca_search1() {
     let mut i: std::ffi::c_int = 0;
-    if search_type & (1 as std::ffi::c_int) << 13 as std::ffi::c_int != 0 {
-        set_mca(55 as std::ffi::c_int);
-    } else if search_type & (1 as std::ffi::c_int) << 0 as std::ffi::c_int != 0 {
-        set_mca(15 as std::ffi::c_int);
+    if search_type & SRCH_FILTER != 0 {
+        set_mca(ActionType::Filter);
+    } else if search_type & SRCH_FORW != 0 {
+        set_mca(ActionType::FSearch);
     } else {
-        set_mca(5 as std::ffi::c_int);
+        set_mca(ActionType::BSearch);
     }
-    if search_type & (1 as std::ffi::c_int) << 8 as std::ffi::c_int != 0 {
+    if search_type & SRCH_NO_MATCH != 0 {
         cmd_putstr(b"Non-match \0" as *const u8 as *const std::ffi::c_char);
     }
-    if search_type & (1 as std::ffi::c_int) << 10 as std::ffi::c_int != 0 {
+    if search_type & SRCH_FIRST_FILE != 0 {
         cmd_putstr(b"First-file \0" as *const u8 as *const std::ffi::c_char);
     }
-    if search_type & (1 as std::ffi::c_int) << 9 as std::ffi::c_int != 0 {
+    if search_type & SRCH_PAST_EOF != 0 {
         cmd_putstr(b"EOF-ignore \0" as *const u8 as *const std::ffi::c_char);
     }
-    if search_type & (1 as std::ffi::c_int) << 2 as std::ffi::c_int != 0 {
+    if search_type & SRCH_NO_MOVE != 0 {
         cmd_putstr(b"Keep-pos \0" as *const u8 as *const std::ffi::c_char);
     }
-    if search_type & (1 as std::ffi::c_int) << 12 as std::ffi::c_int != 0 {
+    if search_type & SRCH_NO_REGEX != 0 {
         cmd_putstr(b"Regex-off \0" as *const u8 as *const std::ffi::c_char);
     }
-    if search_type & (1 as std::ffi::c_int) << 15 as std::ffi::c_int != 0 {
+    if search_type & SRCH_WRAP != 0 {
         cmd_putstr(b"Wrap \0" as *const u8 as *const std::ffi::c_char);
     }
     i = 1 as std::ffi::c_int;
-    while i <= 16 as std::ffi::c_int - 10 as std::ffi::c_int - 1 as std::ffi::c_int {
+    for i in 1..=NUM_SEARCH_COLORS {
         if search_type & (1 as std::ffi::c_int) << 17 as std::ffi::c_int + i != 0 {
             let mut buf: [std::ffi::c_char; 19] = [0; 19];
             snprintf(
@@ -305,33 +296,37 @@ unsafe extern "C" fn mca_search1() {
             );
             cmd_putstr(buf.as_mut_ptr());
         }
-        i += 1;
     }
-    if literal_char as u64 != 0 {
+    if literal_char {
         cmd_putstr(b"Lit \0" as *const u8 as *const std::ffi::c_char);
     }
-    if search_type & (1 as std::ffi::c_int) << 13 as std::ffi::c_int != 0 {
+    if search_type & SRCH_FILTER != 0 {
         cmd_putstr(b"&/\0" as *const u8 as *const std::ffi::c_char);
-    } else if search_type & (1 as std::ffi::c_int) << 0 as std::ffi::c_int != 0 {
+    } else if search_type & SRCH_FORW != 0 {
         cmd_putstr(b"/\0" as *const u8 as *const std::ffi::c_char);
     } else {
         cmd_putstr(b"?\0" as *const u8 as *const std::ffi::c_char);
     }
     forw_prompt = 0 as std::ffi::c_int;
 }
+
 unsafe extern "C" fn mca_search() {
     mca_search1();
     set_mlist(ml_search, 0 as std::ffi::c_int);
 }
+
+/*
+ * Set up the display to start a new toggle-option command.
+ */
 unsafe extern "C" fn mca_opt_toggle() {
-    let mut no_prompt: std::ffi::c_int = optflag & 0o100 as std::ffi::c_int;
-    let mut flag: std::ffi::c_int = optflag & !(0o100 as std::ffi::c_int);
+    let mut no_prompt = optflag & OPT_NO_PROMPT;
+    let mut flag = optflag & !OPT_NO_PROMPT;
     let mut dash: *const std::ffi::c_char = if flag == 0 as std::ffi::c_int {
         b"_\0" as *const u8 as *const std::ffi::c_char
     } else {
         b"-\0" as *const u8 as *const std::ffi::c_char
     };
-    set_mca(47 as std::ffi::c_int);
+    set_mca(ActionType::OptToggle);
     cmd_putstr(dash);
     if optgetname as u64 != 0 {
         cmd_putstr(dash);
@@ -354,6 +349,8 @@ unsafe extern "C" fn mca_opt_toggle() {
         (1 as std::ffi::c_int) << 1 as std::ffi::c_int,
     );
 }
+
+/// Execute a multicharacter command.
 unsafe extern "C" fn exec_mca() {
     let mut cbuf: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
     cmd_exec();
@@ -362,15 +359,18 @@ unsafe extern "C" fn exec_mca() {
         return;
     }
     match mca {
-        15 | 5 => {
+        ActionType::FSearch | ActionType::BSearch => {
             multi_search(cbuf, number as std::ffi::c_int, 0 as std::ffi::c_int);
         }
-        55 => {
-            search_type ^= (1 as std::ffi::c_int) << 8 as std::ffi::c_int;
+        ActionType::Filter => {
+            search_type ^= SRCH_NO_MATCH;
             set_filter_pattern(cbuf, search_type);
-            soft_eof = -(1 as std::ffi::c_int) as POSITION;
+            soft_eof = NULL_POSITION;
         }
-        10 => {
+        ActionType::FirstCmd => {
+            /*
+             * Skip leading spaces or + signs in the string.
+             */
             while *cbuf as std::ffi::c_int == '+' as i32 || *cbuf as std::ffi::c_int == ' ' as i32 {
                 cbuf = cbuf.offset(1);
             }
@@ -383,11 +383,11 @@ unsafe extern "C" fn exec_mca() {
                 every_first_cmd = save(cbuf);
             }
         }
-        47 => {
+        ActionType::OptToggle => {
             toggle_option(curropt, opt_lower, cbuf, optflag);
             curropt = 0 as *mut loption;
         }
-        35 => {
+        ActionType::FBracket => {
             match_brac(
                 *cbuf.offset(0 as std::ffi::c_int as isize),
                 *cbuf.offset(1 as std::ffi::c_int as isize),
@@ -395,7 +395,7 @@ unsafe extern "C" fn exec_mca() {
                 number as std::ffi::c_int,
             );
         }
-        36 => {
+        ActionType::BBracket => {
             match_brac(
                 *cbuf.offset(1 as std::ffi::c_int as isize),
                 *cbuf.offset(0 as std::ffi::c_int as isize),
@@ -403,16 +403,22 @@ unsafe extern "C" fn exec_mca() {
                 number as std::ffi::c_int,
             );
         }
-        9 => {
+        ActionType::Examine => {
             let mut p: *mut std::ffi::c_char = 0 as *mut std::ffi::c_char;
             if !(secure_allow((1 as std::ffi::c_int) << 2 as std::ffi::c_int) == 0) {
                 p = save(cbuf);
                 edit_list(p);
                 free(p as *mut std::ffi::c_void);
+                /* If tag structure is loaded then clean it up. */
                 cleantags();
             }
         }
-        27 => {
+        ActionType::Shell => {
+            /*
+             * !! just uses whatever is in shellcmd.
+             * Otherwise, copy cmdbuf to shellcmd,
+             * expanding any special characters ("%" or "#").
+             */
             let mut done_msg: *const std::ffi::c_char =
                 if *cbuf as std::ffi::c_int == 'P' as i32 & 0o37 as std::ffi::c_int {
                     0 as *const std::ffi::c_char
@@ -436,7 +442,7 @@ unsafe extern "C" fn exec_mca() {
                 lsystem(shellcmd, done_msg);
             }
         }
-        69 => {
+        ActionType::PShell => {
             let mut done_msg_0: *const std::ffi::c_char =
                 if *cbuf as std::ffi::c_int == 'P' as i32 & 0o37 as std::ffi::c_int {
                     0 as *const std::ffi::c_char
@@ -450,7 +456,7 @@ unsafe extern "C" fn exec_mca() {
                 lsystem(pr_expand(cbuf), done_msg_0);
             }
         }
-        37 => {
+        ActionType::Pipe => {
             let mut done_msg_1: *const std::ffi::c_char =
                 if *cbuf as std::ffi::c_int == 'P' as i32 & 0o37 as std::ffi::c_int {
                     0 as *const std::ffi::c_char
@@ -461,7 +467,7 @@ unsafe extern "C" fn exec_mca() {
                 cbuf = cbuf.offset(1);
             }
             if !(secure_allow((1 as std::ffi::c_int) << 8 as std::ffi::c_int) == 0) {
-                pipe_mark(pipec, cbuf);
+                pipe_mark(pipec as i8, cbuf);
                 if !done_msg_1.is_null() {
                     error(done_msg_1, 0 as *mut std::ffi::c_void as *mut PARG);
                 }
@@ -470,91 +476,116 @@ unsafe extern "C" fn exec_mca() {
         _ => {}
     };
 }
-unsafe extern "C" fn is_erase_char(mut c: std::ffi::c_char) -> lbool {
-    return (c as std::ffi::c_int == erase_char
-        || c as std::ffi::c_int == erase2_char
-        || c as std::ffi::c_int == kill_char) as std::ffi::c_int as lbool;
+
+/*
+ * Is a character an erase or kill char?
+ */
+unsafe extern "C" fn is_erase_char(c: char) -> bool {
+    c == erase_char || c == erase2_char || c == kill_char
 }
-unsafe extern "C" fn is_newline_char(mut c: std::ffi::c_char) -> lbool {
-    return (c as std::ffi::c_int == '\n' as i32 || c as std::ffi::c_int == '\r' as i32)
-        as std::ffi::c_int as lbool;
+
+/*
+ * Is a character a carriage return or newline?
+ */
+unsafe extern "C" fn is_newline_char(c: char) -> bool {
+    c == '\n' || c == '\r'
 }
-unsafe extern "C" fn mca_opt_first_char(mut c: std::ffi::c_char) -> std::ffi::c_int {
-    let mut no_prompt: std::ffi::c_int = optflag & 0o100 as std::ffi::c_int;
-    let mut flag: std::ffi::c_int = optflag & !(0o100 as std::ffi::c_int);
-    if flag == 0 as std::ffi::c_int {
-        match c as std::ffi::c_int {
-            95 => {
-                optgetname = LTRUE;
+
+/*
+ * Handle the first char of an option (after the initial dash).
+ */
+unsafe extern "C" fn mca_opt_first_char(c: char) -> ActionType {
+    let mut no_prompt = optflag & OPT_NO_PROMPT;
+    let mut flag = optflag & !OPT_NO_PROMPT;
+    if flag == 0 {
+        match c {
+            '_' => {
+                /* "__" = long option name. */
+                optgetname = true;
                 mca_opt_toggle();
-                return 2 as std::ffi::c_int;
+                return ActionType::McaMore;
             }
             _ => {}
         }
     } else {
-        match c as std::ffi::c_int {
-            43 => {
-                optflag = no_prompt
-                    | (if flag == 2 as std::ffi::c_int {
-                        1 as std::ffi::c_int
-                    } else {
-                        2 as std::ffi::c_int
-                    });
-                mca_opt_toggle();
-                return 2 as std::ffi::c_int;
-            }
-            33 => {
-                optflag = no_prompt
-                    | (if flag == 3 as std::ffi::c_int {
-                        1 as std::ffi::c_int
-                    } else {
-                        3 as std::ffi::c_int
-                    });
-                mca_opt_toggle();
-                return 2 as std::ffi::c_int;
-            }
-            16 => {
-                optflag ^= 0o100 as std::ffi::c_int;
-                mca_opt_toggle();
-                return 2 as std::ffi::c_int;
-            }
-            45 => {
-                optgetname = LTRUE;
-                mca_opt_toggle();
-                return 2 as std::ffi::c_int;
-            }
-            _ => {}
+        if c == '+' {
+            /* "-+" = UNSET. */
+            optflag = no_prompt
+                | (if flag == OPT_UNSET {
+                    OPT_TOGGLE
+                } else {
+                    OPT_SET
+                });
+            mca_opt_toggle();
+            return ActionType::McaMore;
+        } else if c == '!' {
+            /* "-!" = SET */
+            optflag = no_prompt | (if flag == OPT_SET { OPT_TOGGLE } else { OPT_SET });
+            mca_opt_toggle();
+            return ActionType::McaMore;
+        } else if c == CONTROL('P') {
+            optflag ^= OPT_NO_PROMPT;
+            mca_opt_toggle();
+            return ActionType::McaMore;
+        } else if c == '-' {
+            /* "--" = long option name. */
+            optgetname = true;
+            mca_opt_toggle();
+            return ActionType::McaMore;
         }
     }
-    return 0 as std::ffi::c_int;
+    /* Char was not handled here. */
+    ActionType::NoMca
 }
-unsafe extern "C" fn mca_opt_nonfirst_char(mut c: std::ffi::c_char) -> std::ffi::c_int {
+
+/*
+ * Add a char to a long option name.
+ * See if we've got a match for an option name yet.
+ * If so, display the complete name and stop
+ * accepting chars until user hits RETURN.
+ */
+unsafe extern "C" fn mca_opt_nonfirst_char(c: char) -> ActionType {
     let mut p: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
     let mut oname: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
-    let mut ambig: lbool = LFALSE;
-    let mut was_curropt: *mut loption = 0 as *mut loption;
-    if !curropt.is_null() {
-        if is_erase_char(c) as u64 != 0 {
-            return 1 as std::ffi::c_int;
+    let mut ambig: bool = false;
+    let mut was_curropt: Option<LOption> = None;
+
+    if !curropt.is_none() {
+        /* Already have a match for the name. */
+        if is_erase_char(c) {
+            return ActionType::McaDone;
         }
-        if c as std::ffi::c_int != '\t' as i32 {
-            return 2 as std::ffi::c_int;
+        /* {{ Checking for TAB here is ugly.
+         *    Also doesn't extend well -- can't do BACKTAB this way
+         *    because it's a multichar sequence. }} */
+        if c != '\t' {
+            return ActionType::McaMore;
         }
     }
-    if cmd_char(c) == 1 as std::ffi::c_int {
-        return 1 as std::ffi::c_int;
+    /*
+     * Add char to cmd buffer and try to match
+     * the option name.
+     */
+    if cmd_char(c) == CC_QUIT {
+        return ActionType::McaDone;
     }
     p = get_cmdbuf();
-    if p.is_null() || *p.offset(0 as std::ffi::c_int as isize) as std::ffi::c_int == '\0' as i32 {
-        return 2 as std::ffi::c_int;
+    let slice = std::slice::from_raw_parts(p as *const u8, strlen(p) as usize);
+    let cmd_b = String::from_utf8_lossy(slice).into_owned();
+    if p.is_null() || cmd_b.len() == 0 {
+        return ActionType::McaMore;
     }
-    opt_lower = (*p.offset(0 as std::ffi::c_int as isize) as std::ffi::c_int >= 'a' as i32
-        && *p.offset(0 as std::ffi::c_int as isize) as std::ffi::c_int <= 'z' as i32)
-        as std::ffi::c_int as lbool;
+    let first: char = cmd_b.chars().nth(0).unwrap();
+    opt_lower = first.is_ascii_lowercase();
     was_curropt = curropt;
     curropt = findopt_name(&mut p, &mut oname, &mut ambig);
-    if !curropt.is_null() {
+    if !curropt.is_none() {
         if was_curropt.is_null() {
+            /*
+             * Got a match.
+             * Remember the option and
+             * display the full option name.
+             */
             cmd_reset();
             mca_opt_toggle();
             cmd_setstring(oname, (opt_lower as u64 == 0) as std::ffi::c_int as lbool);
@@ -562,72 +593,92 @@ unsafe extern "C" fn mca_opt_nonfirst_char(mut c: std::ffi::c_char) -> std::ffi:
     } else if ambig as u64 == 0 {
         bell();
     }
-    return 2 as std::ffi::c_int;
+    ActionType::McaMore
 }
-unsafe extern "C" fn mca_opt_char(mut c: std::ffi::c_char) -> std::ffi::c_int {
+
+/*
+ * Handle a char of an option toggle command.
+ */
+unsafe extern "C" fn mca_opt_char(c: char) -> ActionType {
     let mut parg: PARG = parg {
         p_string: 0 as *const std::ffi::c_char,
     };
-    if curropt.is_null() && cmdbuf_empty() as std::ffi::c_uint != 0 {
-        let mut ret: std::ffi::c_int = mca_opt_first_char(c);
-        if ret != 0 as std::ffi::c_int {
+
+    /*
+     * This may be a short option (single char),
+     * or one char of a long option name,
+     * or one char of the option parameter.
+     */
+    if curropt.is_none() && cmdbuf_empty() as std::ffi::c_uint != 0 {
+        let mut ret = mca_opt_first_char(c);
+        if ret != ActionType::NoMca {
             return ret;
         }
     }
     if optgetname as u64 != 0 {
+        /* We're getting a long option name.  */
         if is_newline_char(c) as u64 == 0 && c as std::ffi::c_int != '=' as i32 {
             return mca_opt_nonfirst_char(c);
         }
         if curropt.is_null() {
             parg.p_string = get_cmdbuf();
             if (parg.p_string).is_null() {
-                return 2 as std::ffi::c_int;
+                return ActionType::McaMore;
             }
             error(
                 b"There is no --%s option\0" as *const u8 as *const std::ffi::c_char,
                 &mut parg,
             );
-            return 1 as std::ffi::c_int;
+            return ActionType::McaDone;
         }
-        optgetname = LFALSE;
+        optgetname = false;
         cmd_reset();
     } else {
         if is_erase_char(c) as u64 != 0 {
-            return 0 as std::ffi::c_int;
+            return ActionType::NoMca;
         }
         if !curropt.is_null() {
-            return 0 as std::ffi::c_int;
+            return ActionType::NoMca;
         }
         curropt = findopt(c as std::ffi::c_int);
         if curropt.is_null() {
-            parg.p_string = propt(c);
+            parg.p_string = propt(c as i8);
             error(
                 b"There is no %s option\0" as *const u8 as *const std::ffi::c_char,
                 &mut parg,
             );
-            return 1 as std::ffi::c_int;
+            return ActionType::McaDone;
         }
-        opt_lower = (c as std::ffi::c_int >= 'a' as i32 && c as std::ffi::c_int <= 'z' as i32)
-            as std::ffi::c_int as lbool;
+        opt_lower = c.is_ascii_lowercase();
     }
-    if optflag & !(0o100 as std::ffi::c_int) != 1 as std::ffi::c_int || opt_has_param(curropt) == 0
-    {
+
+    /*
+     * If the option which was entered does not take a
+     * parameter, toggle the option immediately,
+     * so user doesn't have to hit RETURN.
+     */
+    if (optflag & !OPT_NO_PROMPT) != OPT_TOGGLE || opt_has_param(curropt) == 0 {
         toggle_option(
             curropt,
             opt_lower,
             b"\0" as *const u8 as *const std::ffi::c_char,
             optflag,
         );
-        return 1 as std::ffi::c_int;
+        return ActionType::McaDone;
     }
+
+    /*
+     * Display a prompt appropriate for the option parameter.
+     */
     start_mca(
-        47 as std::ffi::c_int,
+        ActionType::OptToggle,
         opt_prompt(curropt),
         0 as *mut std::ffi::c_void,
         (1 as std::ffi::c_int) << 1 as std::ffi::c_int,
     );
-    return 2 as std::ffi::c_int;
+    ActionType::McaMore
 }
+
 #[no_mangle]
 pub unsafe extern "C" fn norm_search_type(mut st: std::ffi::c_int) -> std::ffi::c_int {
     if st
@@ -640,169 +691,212 @@ pub unsafe extern "C" fn norm_search_type(mut st: std::ffi::c_int) -> std::ffi::
     }
     return st;
 }
-unsafe extern "C" fn mca_search_char(mut c: std::ffi::c_char) -> std::ffi::c_int {
-    let mut flag: std::ffi::c_int = 0 as std::ffi::c_int;
-    if cmdbuf_empty() as u64 == 0 || literal_char as std::ffi::c_uint != 0 {
-        literal_char = LFALSE;
-        return 0 as std::ffi::c_int;
+
+/*
+ * Handle a char of a search command.
+ */
+unsafe extern "C" fn mca_search_char(ungot: &mut Ungot, c: char) -> ActionType {
+    let mut flag = 0;
+    /*
+     * Certain characters as the first char of
+     * the pattern have special meaning:
+     *      !  Toggle the NO_MATCH flag
+     *      *  Toggle the PAST_EOF flag
+     *      @  Toggle the FIRST_FILE flag
+     */
+    if cmdbuf_empty() == 0 || literal_char {
+        literal_char = false;
+        return ActionType::Null;
     }
-    match c as std::ffi::c_int {
-        5 | 42 => {
-            if mca != 55 as std::ffi::c_int {
-                flag = (1 as std::ffi::c_int) << 9 as std::ffi::c_int;
-            }
-            search_type &= !((1 as std::ffi::c_int) << 15 as std::ffi::c_int);
+    if c == '*' || c == CONTROL('E') {
+        // ignore END of file
+        if mca != ActionType::Filter {
+            flag = SRCH_FIRST_FILE;
         }
-        6 | 64 => {
-            if mca != 55 as std::ffi::c_int {
-                flag = (1 as std::ffi::c_int) << 10 as std::ffi::c_int;
-            }
+        search_type &= !SRCH_WRAP;
+    } else if c == CONTROL('F') || c == '@' {
+        // FIRST file
+        if mca != ActionType::Filter {
+            flag = SRCH_FIRST_FILE;
         }
-        11 => {
-            if mca != 55 as std::ffi::c_int {
-                flag = (1 as std::ffi::c_int) << 2 as std::ffi::c_int;
-            }
+    } else if c == CONTROL('K') {
+        // KEEP position
+        if mca != ActionType::Filter {
+            flag = SRCH_NO_MOVE;
         }
-        19 => {
-            let mut buf: [std::ffi::c_char; 35] = [0; 35];
-            snprintf(
-                buf.as_mut_ptr(),
-                ::core::mem::size_of::<[std::ffi::c_char; 35]>() as std::ffi::c_ulong,
-                b"Sub-pattern (1-%d):\0" as *const u8 as *const std::ffi::c_char,
-                16 as std::ffi::c_int - 10 as std::ffi::c_int - 1 as std::ffi::c_int,
-            );
-            clear_bot();
-            cmd_putstr(buf.as_mut_ptr());
-            flush();
-            c = getcc();
-            if c as std::ffi::c_int >= '1' as i32
-                && c as std::ffi::c_int
-                    <= '0' as i32
-                        + (16 as std::ffi::c_int - 10 as std::ffi::c_int - 1 as std::ffi::c_int)
-            {
-                flag = (1 as std::ffi::c_int)
-                    << 17 as std::ffi::c_int + (c as std::ffi::c_int - '0' as i32);
-            } else {
-                flag = -(1 as std::ffi::c_int);
-            }
+    } else if c == CONTROL('S') {
+        // SUBSEARCH
+        buf = format!("Sub-pattern (1-{}):", NUM_SEARCH_COLORS);
+        clear_bot();
+        cmd_putstr(buf.as_mut_ptr());
+        flush();
+        c = getcc(ungot);
+        if c as u8 >= b'1' && c as u8 <= b'0' + NUM_SEARCH_COLORS as u8 {
+            // calls mca_search() below to repaint
+            flag = SRCH_SUBSEARCH((c as u8 - b'0').into());
+        } else {
+            flag = -1;
         }
-        23 => {
-            if mca != 55 as std::ffi::c_int {
-                flag = (1 as std::ffi::c_int) << 15 as std::ffi::c_int;
-            }
+    } else if c == CONTROL('W') {
+        // WRAP around
+        if mca != ActionType::Filter {
+            flag = SRCH_WRAP;
         }
-        18 => {
-            flag = (1 as std::ffi::c_int) << 12 as std::ffi::c_int;
-        }
-        14 | 33 => {
-            flag = (1 as std::ffi::c_int) << 8 as std::ffi::c_int;
-        }
-        12 => {
-            literal_char = LTRUE;
-            flag = -(1 as std::ffi::c_int);
-        }
-        _ => {}
+    } else if c == CONTROL('R') {
+        // Don't use REGULAR EXPRESSIONS
+        flag = SRCH_NO_REGEX;
+    } else if c == CONTROL('N') || c == '!' {
+        flag = SRCH_NO_MATCH;
+    } else if c == CONTROL('L') {
+        literal_char = true;
+        flag = -1;
     }
-    if flag != 0 as std::ffi::c_int {
-        if flag != -(1 as std::ffi::c_int) {
+
+    if flag != 0 {
+        if flag != -1 {
             search_type = norm_search_type(search_type ^ flag);
         }
         mca_search();
-        return 2 as std::ffi::c_int;
+        return ActionType::McaMore;
     }
-    return 0 as std::ffi::c_int;
+    ActionType::NoMca
 }
-unsafe extern "C" fn mca_char(mut c: std::ffi::c_char) -> std::ffi::c_int {
-    let mut ret: std::ffi::c_int = 0;
+
+/*
+ * Handle a character of a multi-character command.
+ */
+unsafe extern "C" fn mca_char(ungot: &mut Ungot, c: char) -> ActionType {
+    let mut ret = ActionType::Null;
     match mca {
-        0 => return 0 as std::ffi::c_int,
-        105 => return 0 as std::ffi::c_int,
-        6 => {
-            if !(c as std::ffi::c_int >= '0' as i32 && c as std::ffi::c_int <= '9' as i32
-                || c as std::ffi::c_int == '.' as i32)
-            {
+        /*
+         * We're not in a multicharacter command.
+         */
+        ActionType::Null => return ActionType::NoMca,
+        /*
+         * In the prefix of a command.
+         * This not considered a multichar command
+         * (even tho it uses cmdbuf, etc.).
+         * It is handled in the commands() switch.
+         */
+        ActionType::Prefix => return ActionType::NoMca,
+        /*
+         * Entering digits of a number.
+         * Terminated by a non-digit.
+         */
+        ActionType::Digit => {
+            if !(c.is_ascii_digit() || c == '.') {
+                let tables = get_tables_mut().unwrap();
                 match editchar(
-                    c,
-                    0o1 as std::ffi::c_int
-                        | 0o2 as std::ffi::c_int
-                        | 0o4 as std::ffi::c_int
-                        | 0o10 as std::ffi::c_int,
+                    &tables,
+                    c as u8,
+                    ECF_PEEK | ECF_NOHISTORY | ECF_NOCOMPLETE | ECF_NORIGHTLEFT,
                 ) {
-                    101 => return 2 as std::ffi::c_int,
-                    100 => {
+                    /*
+                     * Ignore this char and get another one.
+                     */
+                    ActionType::NoAction => return ActionType::McaMore,
+                    ActionType::Invalid => {
+                        /*
+                         * Not part of the number.
+                         * End the number and treat this char
+                         * as a normal command character.
+                         */
                         number = cmd_int(&mut fraction);
                         clear_mca();
                         cmd_accept();
-                        return 0 as std::ffi::c_int;
+                        return ActionType::NoMca;
                     }
                     _ => {}
                 }
             }
         }
-        47 => {
+        ActionType::OptToggle => {
             ret = mca_opt_char(c);
-            if ret != 0 as std::ffi::c_int {
+            if ret != ActionType::NoMca {
                 return ret;
             }
         }
-        15 | 5 | 55 => {
-            ret = mca_search_char(c);
-            if ret != 0 as std::ffi::c_int {
+        ActionType::FSearch | ActionType::BSearch | ActionType::Filter => {
+            ret = mca_search_char(ungot, c);
+            if ret != ActionType::NoMca {
                 return ret;
             }
         }
         _ => {}
     }
-    if is_newline_char(c) as u64 != 0 {
+
+    /*
+     * The multichar command is terminated by a newline.
+     */
+    if is_newline_char(c) {
         let opts = get_options();
-        if pasting as std::ffi::c_uint != 0 && opts.no_paste != 0 {
+        if pasting != 0 && opts.no_paste != 0 {
+            /* Ignore pasted input after (and including) the first newline */
             start_ignoring_input();
-            return 2 as std::ffi::c_int;
+            return ActionType::McaMore;
         }
+        /* Execute the command */
         exec_mca();
-        return 1 as std::ffi::c_int;
+        return ActionType::McaDone;
     }
-    if cmd_char(c) == 1 as std::ffi::c_int {
-        return 1 as std::ffi::c_int;
+
+    /*
+     * Append the char to the command buffer.
+     */
+    if cmd_char(c) == CC_QUIT {
+        /*
+         * Abort the multi-char command.
+         */
+        return ActionType::McaDone;
     }
     match mca {
-        35 | 36 => {
-            if len_cmdbuf() >= 2 as std::ffi::c_int {
+        ActionType::FBracket | ActionType::BBracket => {
+            if len_cmdbuf() >= 2 {
+                /*
+                 * Special case for the bracket-matching commands.
+                 * Execute the command after getting exactly two
+                 * characters from the user.
+                 */
                 exec_mca();
-                return 1 as std::ffi::c_int;
+                return ActionType::McaDone;
             }
         }
-        15 | 5 => {
+        ActionType::FSearch | ActionType::BSearch => {
             let opts = get_options();
             if opts.incr_search != 0 {
-                let mut st: std::ffi::c_int = search_type
-                    & ((1 as std::ffi::c_int) << 0 as std::ffi::c_int
-                        | (1 as std::ffi::c_int) << 1 as std::ffi::c_int
-                        | (1 as std::ffi::c_int) << 8 as std::ffi::c_int
-                        | (1 as std::ffi::c_int) << 12 as std::ffi::c_int
-                        | (1 as std::ffi::c_int) << 2 as std::ffi::c_int
-                        | (1 as std::ffi::c_int) << 15 as std::ffi::c_int
-                        | ((1 as std::ffi::c_int) << 17 as std::ffi::c_int + 1 as std::ffi::c_int
-                            | (1 as std::ffi::c_int)
-                                << 17 as std::ffi::c_int + 2 as std::ffi::c_int
-                            | (1 as std::ffi::c_int)
-                                << 17 as std::ffi::c_int + 3 as std::ffi::c_int
-                            | (1 as std::ffi::c_int)
-                                << 17 as std::ffi::c_int + 4 as std::ffi::c_int
-                            | (1 as std::ffi::c_int)
-                                << 17 as std::ffi::c_int + 5 as std::ffi::c_int));
-                let mut save_updown: ssize_t = 0;
-                let mut pattern: *const std::ffi::c_char = get_cmdbuf();
+                /* Incremental search: do a search after every input char. */
+                let mut st = search_type
+                    & (SRCH_FORW
+                        | SRCH_BACK
+                        | SRCH_NO_MATCH
+                        | SRCH_NO_REGEX
+                        | SRCH_NO_MOVE
+                        | SRCH_WRAP
+                        | SRCH_SUBSEARCH_ALL);
+                let mut save_updown = 0;
+                let mut pattern = get_cmdbuf();
                 if pattern.is_null() {
-                    return 2 as std::ffi::c_int;
+                    return ActionType::McaMore;
                 }
+                /*
+                 * Must save updown_match because mca_search
+                 * reinits it. That breaks history scrolling.
+                 * {{ This is ugly. mca_search probably shouldn't call set_mlist. }}
+                 */
                 save_updown = save_updown_match();
                 cmd_exec();
                 if *pattern as std::ffi::c_int == '\0' as i32 {
+                    /* User has backspaced to an empty pattern. */
                     undo_search(LTRUE);
                 } else {
+                    /*
+                     * Suppress tty polling while searching.
+                     * This avoids a problem where tty input
+                     * can cause the search to be interrupted.
+                     */
                     no_poll = LTRUE;
                     if search(
+                        /* No match, invalid pattern, etc. */
                         st | (1 as std::ffi::c_int) << 3 as std::ffi::c_int,
                         pattern,
                         1 as std::ffi::c_int,
@@ -812,6 +906,7 @@ unsafe extern "C" fn mca_char(mut c: std::ffi::c_char) -> std::ffi::c_int {
                     }
                     no_poll = LFALSE;
                 }
+                /* Redraw the search prompt and search string. */
                 if is_screen_trashed() != 0 || full_screen == 0 {
                     clear();
                     repaint();
@@ -823,7 +918,10 @@ unsafe extern "C" fn mca_char(mut c: std::ffi::c_char) -> std::ffi::c_int {
         }
         _ => {}
     }
-    return 2 as std::ffi::c_int;
+    /*
+     * Need another character.
+     */
+    ActionType::McaMore
 }
 unsafe extern "C" fn clear_buffers() {
     if ch_getflags() & 0o1 as std::ffi::c_int == 0 {
@@ -872,9 +970,17 @@ unsafe extern "C" fn make_display() {
         ignore_eoi = save_ignore_eoi;
     }
 }
-unsafe extern "C" fn prompt(o: &Options) {
+
+/*
+ * Display the appropriate prompt.
+ */
+unsafe extern "C" fn prompt(ungot: &mut Ungot, o: &Options) {
     let mut p: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
-    if !ungot.is_null() && (*ungot).ug_end_command as u64 == 0 {
+    if !ungot.is_empty() && ungot.current().unwrap().end_command {
+        /*
+         * No prompt necessary if commands are from
+         * ungotten chars rather than from the user.
+         */
         return;
     }
     make_display();
@@ -951,174 +1057,204 @@ pub unsafe extern "C" fn dispversion() {
         &mut parg,
     );
 }
-unsafe extern "C" fn getcc_end_command() -> std::ffi::c_char {
-    let mut ch: std::ffi::c_int = 0;
+
+/*
+ * Return a character to complete a partial command, if possible.
+ */
+unsafe extern "C" fn getcc_end_command(ungot: &Ungot) -> char {
+    let mut ch = 0i32;
     match mca {
-        6 => return 'g' as i32 as std::ffi::c_char,
-        15 | 5 | 55 => return '\n' as i32 as std::ffi::c_char,
+        /* We have a number but no command.  Treat as #g. */
+        ActionType::Digit => return 'g',
+        ActionType::FSearch | ActionType::BSearch | ActionType::Filter => {
+            /* We have "/string" but no newline.  Add the \n. */
+            return '\n';
+        }
         _ => {
-            if !ungot.is_null() {
-                return '\0' as i32 as std::ffi::c_char;
+            /* Some other incomplete command.  Let user complete it. */
+            if !ungot.is_empty() {
+                return '\0';
             }
             ch = getchr();
-            if ch < 0 as std::ffi::c_int {
+            if ch < 0 {
                 ch = '\0' as i32;
             }
-            return ch as std::ffi::c_char;
+            return char::from_u32(ch as u32).unwrap();
         }
     };
 }
-unsafe extern "C" fn get_ungot(mut p_end_command: *mut lbool) -> std::ffi::c_char {
-    let mut ug: *mut ungot = ungot;
-    let mut c: std::ffi::c_char = (*ug).ug_char;
-    if !p_end_command.is_null() {
-        *p_end_command = (*ug).ug_end_command;
-    }
-    ungot = (*ug).ug_next;
-    free(ug as *mut std::ffi::c_void);
-    return c;
-}
+
 #[no_mangle]
-pub unsafe extern "C" fn getcc_clear() {
-    while !ungot.is_null() {
-        get_ungot(0 as *mut lbool);
+pub unsafe extern "C" fn getcc_clear(ungot: &mut Ungot) {
+    while !ungot.is_empty() {
+        ungot.get_ungot(None);
     }
 }
-unsafe extern "C" fn getccu() -> std::ffi::c_char {
-    let mut c: std::ffi::c_int = 0 as std::ffi::c_int;
-    while c == 0 as std::ffi::c_int && sigs == 0 as std::ffi::c_int {
-        if ungot.is_null() {
-            c = getchr();
-            if c < 0 as std::ffi::c_int {
-                c = '\0' as i32;
+
+/*
+ * Get command character.
+ * The character normally comes from the keyboard,
+ * but may come from ungotten characters
+ * (characters previously given to ungetcc or ungetsc).
+ */
+unsafe fn getccu(ungot: &mut Ungot) -> char {
+    let mut c = ' ';
+    while c as u8 == 0 && sigs == 0 {
+        if ungot.is_empty() {
+            /* Normal case: no ungotten chars.
+             * Get char from the user. */
+            let ch = getchr();
+            if ch < 0 {
+                c = '\0';
             }
         } else {
-            let mut end_command: lbool = LFALSE;
-            c = get_ungot(&mut end_command) as std::ffi::c_int;
-            if end_command as u64 != 0 {
-                c = getcc_end_command() as std::ffi::c_int;
+            /* Ungotten chars available:
+             * Take the top of stack (most recent). */
+            let mut end_command = false;
+            (c, _) = ungot.get_ungot(Some(end_command));
+            if end_command {
+                c = getcc_end_command(ungot);
             }
         }
     }
-    return c as std::ffi::c_char;
+    c
 }
+
+/*
+ * Get a command character, but if we receive the orig sequence,
+ * convert it to the repl sequence.
+ */
 unsafe extern "C" fn getcc_repl(
-    mut orig: *const std::ffi::c_char,
-    mut repl: *const std::ffi::c_char,
-    mut gr_getc: Option<unsafe extern "C" fn() -> std::ffi::c_char>,
-    mut gr_ungetc: Option<unsafe extern "C" fn(std::ffi::c_char) -> ()>,
-) -> std::ffi::c_char {
-    let mut c: std::ffi::c_char = 0;
-    let mut keys: [std::ffi::c_char; 16] = [0; 16];
-    let mut ki: size_t = 0 as std::ffi::c_int as size_t;
-    c = (Some(gr_getc.expect("non-null function pointer"))).expect("non-null function pointer")();
-    if orig.is_null()
-        || *orig.offset(0 as std::ffi::c_int as isize) as std::ffi::c_int == '\0' as i32
-    {
+    ungot: &mut Ungot,
+    orig: Option<&str>,
+    repl: Option<&str>,
+    gr_getc: Option<unsafe fn(&mut Ungot) -> char>,
+    gr_ungetc: Option<unsafe fn(char) -> ()>,
+) -> char {
+    let mut keys: [char; 16] = ['\0'; 16];
+    let mut ki = 0;
+
+    let mut c = gr_getc.unwrap()(ungot);
+    if orig.is_none() || orig.unwrap().len() == 0 {
         return c;
     }
+    let orig = orig.unwrap();
+    let repl = repl.unwrap();
     loop {
-        keys[ki as usize] = c;
-        if c as std::ffi::c_int != *orig.offset(ki as isize) as std::ffi::c_int
-            || ki
-                >= (::core::mem::size_of::<[std::ffi::c_char; 16]>() as std::ffi::c_ulong)
-                    .wrapping_sub(1 as std::ffi::c_int as std::ffi::c_ulong)
-        {
-            while ki > 0 as std::ffi::c_int as size_t {
-                let fresh0 = ki;
-                ki = ki.wrapping_sub(1);
+        keys[ki] = c;
+        if Some(c) != orig.chars().nth(ki) || ki >= keys.len() {
+            /* This is not orig we have been receiving.
+             * If we have stashed chars in keys[],
+             * unget them and return the first one. */
+            while ki > 0 {
                 (Some(gr_ungetc.expect("non-null function pointer")))
-                    .expect("non-null function pointer")(keys[fresh0 as usize]);
+                    .expect("non-null function pointer")(keys[ki]);
+                ki -= 1;
             }
-            return keys[0 as std::ffi::c_int as usize];
+            return keys[0];
         }
-        ki = ki.wrapping_add(1);
-        if *orig.offset(ki as isize) as std::ffi::c_int == '\0' as i32 {
-            ki = (strlen(repl)).wrapping_sub(1 as std::ffi::c_int as std::ffi::c_ulong);
-            while ki > 0 as std::ffi::c_int as size_t {
-                let fresh1 = ki;
-                ki = ki.wrapping_sub(1);
+        ki += 1;
+        if orig.chars().nth(ki) == Some('\0') {
+            /* We've received the full orig sequence.
+             * Return the repl sequence. */
+            ki = repl.len();
+            while ki > 0 {
                 (Some(gr_ungetc.expect("non-null function pointer")))
                     .expect("non-null function pointer")(
-                    *repl.offset(fresh1 as isize)
+                    repl.chars().nth(ki).unwrap()
                 );
+                ki -= 1;
+                return repl.chars().nth(0).unwrap();
             }
-            return *repl.offset(0 as std::ffi::c_int as isize);
+            return repl.chars().nth(0).unwrap();
         }
-        c = (Some(gr_getc.expect("non-null function pointer"))).expect("non-null function pointer")(
-        );
+        c = gr_getc.expect("No function defined")(ungot);
     }
 }
+
+/*
+ * Get command character.
+ */
 #[no_mangle]
-pub unsafe extern "C" fn getcc() -> std::ffi::c_char {
+pub unsafe extern "C" fn getcc(ungot: &mut Ungot) -> char {
+    /* Replace kent (keypad Enter) with a newline. */
     return getcc_repl(
-        kent,
-        b"\n\0" as *const u8 as *const std::ffi::c_char,
-        Some(getccu as unsafe extern "C" fn() -> std::ffi::c_char),
-        Some(ungetcc as unsafe extern "C" fn(std::ffi::c_char) -> ()),
+        ungot,
+        Some(&kent),
+        Some("\n"),
+        Some(getccu),
+        Some(ungot.ungetcc),
     );
 }
-#[no_mangle]
-pub unsafe extern "C" fn ungetcc(mut c: std::ffi::c_char) {
-    let mut ug: *mut ungot = ecalloc(
-        1 as std::ffi::c_int as size_t,
-        ::core::mem::size_of::<ungot>() as std::ffi::c_ulong,
-    ) as *mut ungot;
-    (*ug).ug_char = c;
-    (*ug).ug_next = ungot;
-    ungot = ug;
-}
 
-/*
- * "Unget" a command character.
- * If any other chars are already ungotten, put this one after those.
- */
-unsafe extern "C" fn ungetcc_back1(mut c: std::ffi::c_char, mut end_command: lbool) {
-    let mut ug: *mut ungot = ecalloc(
-        1 as std::ffi::c_int as size_t,
-        ::core::mem::size_of::<ungot>() as std::ffi::c_ulong,
-    ) as *mut ungot;
-    (*ug).ug_char = c;
-    (*ug).ug_end_command = end_command;
-    (*ug).ug_next = 0 as *mut ungot;
-    if ungot.is_null() {
-        ungot = ug;
-    } else {
-        let mut pu: *mut ungot = 0 as *mut ungot;
-        pu = ungot;
-        while !((*pu).ug_next).is_null() {
-            pu = (*pu).ug_next;
+impl Ungot {
+    pub fn new() -> Self {
+        Ungot { chars: Vec::new() }
+    }
+
+    /// "Unget" a command character.
+    /// The next getcc() will return this character.
+    pub unsafe fn ungetcc(&mut self, c: char) {
+        self.chars.push(Char {
+            ch: c,
+            end_command: false,
+        });
+    }
+
+    /*
+     * "Unget" a command character.
+     * If any other chars are already ungotten, put this one after those.
+     */
+    unsafe extern "C" fn ungetcc_back1(&mut self, c: char, end_command: bool) {
+        self.chars.push(Char {
+            ch: c,
+            end_command: end_command,
+        });
+    }
+
+    pub unsafe extern "C" fn ungetcc_back(&mut self, c: char) {
+        self.ungetcc_back1(c, false);
+    }
+
+    pub unsafe extern "C" fn ungetcc_end_command(&mut self) {
+        self.ungetcc_back1('\0', true);
+    }
+
+    /*
+     * Unget a whole string of command characters.
+     * The next sequence of getcc()'s will return this string.
+     */
+    pub unsafe extern "C" fn ungetsc(&mut self, s: &str) {
+        for c in s.chars() {
+            self.ungetcc(c);
         }
-        (*pu).ug_next = ug;
-    };
-}
-#[no_mangle]
-pub unsafe extern "C" fn ungetcc_back(mut c: std::ffi::c_char) {
-    ungetcc_back1(c, LFALSE);
-}
-#[no_mangle]
-pub unsafe extern "C" fn ungetcc_end_command() {
-    ungetcc_back1('\0' as i32 as std::ffi::c_char, LTRUE);
-}
+    }
 
-/*
- * Unget a whole string of command characters.
- * The next sequence of getcc()'s will return this string.
- */
-#[no_mangle]
-pub unsafe extern "C" fn ungetsc(mut s: *const std::ffi::c_char) {
-    while *s as std::ffi::c_int != '\0' as i32 {
-        let fresh2 = s;
-        s = s.offset(1);
-        ungetcc_back(*fresh2);
+    /// Peek the next command character, without consuming it.
+    pub unsafe extern "C" fn peekcc(&mut self) -> char {
+        let mut c = getcc(self);
+        self.ungetcc(c);
+        c
+    }
+
+    /// Get a command character from the ungotten stack.
+    unsafe extern "C" fn get_ungot(&mut self, p_end_command: Option<bool>) -> (char, Option<bool>) {
+        let ug = self.chars.pop().unwrap();
+        if let Some(end_command) = p_end_command {
+            return (ug.ch, Some(ug.end_command));
+        }
+        (ug.ch, None)
+    }
+
+    pub unsafe fn is_empty(&self) -> bool {
+        self.chars.is_empty()
+    }
+
+    pub unsafe fn current(&self) -> Option<&Char> {
+        self.chars.last()
     }
 }
-#[no_mangle]
-pub unsafe extern "C" fn peekcc() -> std::ffi::c_char {
-    let mut c: std::ffi::c_char = getcc();
-    ungetcc(c);
-    return c;
-}
+
 unsafe extern "C" fn multi_search(
     mut pattern: *const std::ffi::c_char,
     mut n: std::ffi::c_int,
@@ -1187,10 +1323,10 @@ unsafe extern "C" fn multi_search(
         unsave_ifile(save_ifile);
     };
 }
-unsafe extern "C" fn forw_loop(mut until_hilite: std::ffi::c_int) -> std::ffi::c_int {
+unsafe extern "C" fn forw_loop(mut until_hilite: std::ffi::c_int) -> ActionType {
     let mut curr_len: POSITION = 0;
     if ch_getflags() & 0o10 as std::ffi::c_int != 0 {
-        return 101 as std::ffi::c_int;
+        return ActionType::NoAction;
     }
     cmd_exec();
     jump_forw_buffered();
@@ -1220,12 +1356,12 @@ unsafe extern "C" fn forw_loop(mut until_hilite: std::ffi::c_int) -> std::ffi::c
             == 0
     {
         return if until_hilite != 0 {
-            56 as std::ffi::c_int
+            ActionType::FUntilHilite
         } else {
-            50 as std::ffi::c_int
+            ActionType::FForever
         };
     }
-    return 101 as std::ffi::c_int;
+    ActionType::NoAction
 }
 #[no_mangle]
 pub unsafe extern "C" fn start_ignoring_input() {
@@ -1238,29 +1374,28 @@ pub unsafe extern "C" fn stop_ignoring_input() {
     pasting = LFALSE;
 }
 #[no_mangle]
-pub unsafe extern "C" fn is_ignoring_input(mut action: std::ffi::c_int) -> lbool {
+pub unsafe extern "C" fn is_ignoring_input(mut action: ActionType) -> bool {
     if ignoring_input as u64 == 0 {
-        return LFALSE;
+        return false;
     }
-    if action == 76 as std::ffi::c_int {
+    if action == ActionType::EndPaste {
         stop_ignoring_input();
     }
     if get_time() >= ignoring_input_time + 5 as std::ffi::c_int as time_t {
         stop_ignoring_input();
     }
-    return (action != 105 as std::ffi::c_int) as std::ffi::c_int as lbool;
+    action != ActionType::Prefix
 }
 #[no_mangle]
-pub unsafe extern "C" fn commands(o: &Options) {
+pub unsafe extern "C" fn commands(marks: &Marks, ungot: &mut Ungot, o: &Options) {
     let mut current_block: u64;
-    let mut c: std::ffi::c_char = 0;
-    let mut action: std::ffi::c_int = 0;
+    let mut c = ' ';
+    let mut action = ActionType::NoAction;
     let mut cbuf: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
     let mut msg: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
-    let mut newaction: std::ffi::c_int = 0;
     let mut save_jump_sline: std::ffi::c_int = 0;
     let mut save_search_type: std::ffi::c_int = 0;
-    let mut extra: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
+    let mut extra = None;
     let mut parg: PARG = parg {
         p_string: 0 as *const std::ffi::c_char,
     };
@@ -1269,7 +1404,7 @@ pub unsafe extern "C" fn commands(o: &Options) {
     let mut tagfile: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
     search_type = (1 as std::ffi::c_int) << 0 as std::ffi::c_int;
     wscroll = (sc_height + 1 as std::ffi::c_int) / 2 as std::ffi::c_int;
-    newaction = 101 as std::ffi::c_int;
+    let mut newaction = ActionType::NoAction;
     's_39: loop {
         clear_mca();
         cmd_accept();
@@ -1283,35 +1418,61 @@ pub unsafe extern "C" fn commands(o: &Options) {
         }
         check_winch();
         cmd_reset();
-        prompt(o);
+        prompt(ungot, o);
         if sigs != 0 {
             continue;
         }
-        if newaction == 101 as std::ffi::c_int {
-            c = getcc();
+        if newaction == ActionType::NoAction {
+            c = getcc(ungot);
         }
         loop {
             if sigs != 0 {
                 continue 's_39;
             }
-            if newaction != 101 as std::ffi::c_int {
+            if newaction != ActionType::NoAction {
                 action = newaction;
-                newaction = 101 as std::ffi::c_int;
+                newaction = ActionType::NoAction;
             } else {
-                if mca != 0 {
-                    match mca_char(c) {
-                        2 => {
-                            c = getcc();
+                /*
+                 * If we are in a multicharacter command, call mca_char.
+                 * Otherwise we call fcmd_decode to determine the
+                 * action to be performed.
+                 */
+                if mca != ActionType::Null {
+                    match mca_char(ungot, c as u8 as char) {
+                        ActionType::McaMore => {
+                            /*
+                             * Need another character.
+                             */
+                            c = getcc(ungot);
                             continue;
                         }
-                        1 => {
+                        ActionType::McaDone => {
+                            /*
+                             * Not a multi-char command
+                             * (at least, not anymore).
+                             */
                             continue 's_39;
                         }
-                        0 | _ => {}
+                        ActionNoMca | _ => {
+                            /*
+                             * Not a multi-char command
+                             * (at least, not anymore).
+                             */
+                        }
                     }
                 }
-                extra = 0 as *const std::ffi::c_char;
-                if mca != 0 {
+                /*
+                 * Decode the command character and decide what to do.
+                 */
+                if mca != ActionType::Null {
+                    /*
+                     * We're in a multichar command.
+                     * Add the character to the command buffer
+                     * and display it on the screen.
+                     * If the user backspaces past the start
+                     * of the line, abort the command.
+                     */
                     if cmd_char(c) == 1 as std::ffi::c_int
                         || cmdbuf_empty() as std::ffi::c_uint != 0
                     {
@@ -1319,20 +1480,37 @@ pub unsafe extern "C" fn commands(o: &Options) {
                     }
                     cbuf = get_cmdbuf();
                     if cbuf.is_null() {
-                        c = getcc();
+                        c = getcc(ungot);
                         continue;
                     } else {
-                        action = fcmd_decode(cbuf, &mut extra);
+                        if let Some(tables) = get_tables_mut() {
+                            let cbuf = CStr::from_ptr(cbuf).to_bytes();
+                            action = fcmd_decode(&tables, cbuf, &mut extra);
+                        }
                     }
                 } else {
-                    let tbuf: [std::ffi::c_char; 2] = [c, '\0' as i32 as std::ffi::c_char];
-                    action = fcmd_decode(tbuf.as_ptr(), &mut extra);
+                    /*
+                     * Don't use cmd_char if we're starting fresh
+                     * at the beginning of a command, because we
+                     * don't want to echo the command until we know
+                     * it is a multichar command.  We also don't
+                     * want erase_char/kill_char to be treated
+                     * as line editing characters.
+                     */
+                    let tbuf = b"c\0";
+                    if let Some(tables) = get_tables_mut() {
+                        action = fcmd_decode(&tables, tbuf, &mut extra);
+                    }
                 }
-                if !extra.is_null() {
-                    ungetsc(extra);
+                /*
+                 * If an "extra" string was returned,
+                 * process it as a string of command characters.
+                 */
+                if !extra.is_none() {
+                    ungot.ungetsc(extra.unwrap().0);
                 }
             }
-            if action != 105 as std::ffi::c_int {
+            if action != ActionType::Prefix {
                 cmd_reset();
             }
             if is_ignoring_input(action) as u64 != 0 {
@@ -1340,48 +1518,67 @@ pub unsafe extern "C" fn commands(o: &Options) {
             }
             let opts = get_options();
             match action {
-                75 => {
+                ActionType::StartPaste => {
                     if opts.no_paste != 0 {
                         start_ignoring_input();
                     }
                     continue 's_39;
                 }
-                6 => {
+                ActionType::Digit => {
+                    /*
+                     * First digit of a number.
+                     */
                     start_mca(
-                        6 as std::ffi::c_int,
+                        ActionType::Digit,
                         b":\0" as *const u8 as *const std::ffi::c_char,
                         0 as *mut std::ffi::c_void,
                         (1 as std::ffi::c_int) << 0 as std::ffi::c_int,
                     );
                 }
-                33 => {
+                ActionType::FWindow => {
+                    /*
+                     * Forward one window (and set the window size).
+                     */
                     if number > 0 as std::ffi::c_int as LINENUM {
                         opts.swindow = number as std::ffi::c_int;
                     }
                     current_block = 3507267478320338004;
                     break;
                 }
-                13 => {
+                ActionType::FScreen => {
+                    /*
+                     * Forward one screen.
+                     */
                     current_block = 3507267478320338004;
                     break;
                 }
-                34 => {
+                ActionType::BWindow => {
+                    /*
+                     * Backward one window (and set the window size).
+                     */
                     if number > 0 as std::ffi::c_int as LINENUM {
                         opts.swindow = number as std::ffi::c_int;
                     }
                     current_block = 2194593563755971021;
                     break;
                 }
-                3 => {
+                ActionType::BScreen => {
+                    /*
+                     * Backward one screen.
+                     */
                     current_block = 2194593563755971021;
                     break;
                 }
-                12 | 60 => {
+                ActionType::FLine | ActionType::FNewline => {
+                    /*
+                     * Forward N (default 1) line.
+                     */
                     if number <= 0 as std::ffi::c_int as LINENUM {
                         number = 1 as std::ffi::c_int as LINENUM;
                     }
                     cmd_exec();
-                    if opts.show_attn == 2 as std::ffi::c_int && number > 1 as std::ffi::c_int as LINENUM
+                    if opts.show_attn == 2 as std::ffi::c_int
+                        && number > 1 as std::ffi::c_int as LINENUM
                     {
                         set_attnpos(bottompos);
                     }
@@ -1389,12 +1586,15 @@ pub unsafe extern "C" fn commands(o: &Options) {
                         number as std::ffi::c_int,
                         LFALSE,
                         LFALSE,
-                        (action == 60 as std::ffi::c_int && opts.chopline == 0) as std::ffi::c_int
+                        (action == ActionType::FNewline && opts.chopline == 0) as std::ffi::c_int
                             as lbool,
                     );
                     continue 's_39;
                 }
-                2 | 61 => {
+                ActionType::BLine | ActionType::BNewline => {
+                    /*
+                     * Backward N (default 1) line.
+                     */
                     if number <= 0 as std::ffi::c_int as LINENUM {
                         number = 1 as std::ffi::c_int as LINENUM;
                     }
@@ -1403,34 +1603,47 @@ pub unsafe extern "C" fn commands(o: &Options) {
                         number as std::ffi::c_int,
                         LFALSE,
                         LFALSE,
-                        (action == 61 as std::ffi::c_int && opts.chopline == 0) as std::ffi::c_int
+                        (action == ActionType::BNewline && opts.chopline == 0) as std::ffi::c_int
                             as lbool,
                     );
                     continue 's_39;
                 }
-                66 => {
+                ActionType::FMouse => {
+                    /*
+                     * Forward wheel_lines lines.
+                     */
                     cmd_exec();
                     forward(opts.wheel_lines, LFALSE, LFALSE, LFALSE);
                     continue 's_39;
                 }
-                67 => {
+                ActionType::BMouse => {
+                    /*
+                     * Backward wheel_lines lines.
+                     */
                     cmd_exec();
                     backward(opts.wheel_lines, LFALSE, LFALSE, LFALSE);
                     continue 's_39;
                 }
-                29 => {
+                ActionType::FFLine => {
+                    /*
+                     * Force forward N (default 1) line.
+                     */
                     if number <= 0 as std::ffi::c_int as LINENUM {
                         number = 1 as std::ffi::c_int as LINENUM;
                     }
                     cmd_exec();
-                    if opts.show_attn == 2 as std::ffi::c_int && number > 1 as std::ffi::c_int as LINENUM
+                    if opts.show_attn == 2 as std::ffi::c_int
+                        && number > 1 as std::ffi::c_int as LINENUM
                     {
                         set_attnpos(bottompos);
                     }
                     forward(number as std::ffi::c_int, LTRUE, LFALSE, LFALSE);
                     continue 's_39;
                 }
-                30 => {
+                ActionType::BFLine => {
+                    /*
+                     * Force backward N (default 1) line.
+                     */
                     if number <= 0 as std::ffi::c_int as LINENUM {
                         number = 1 as std::ffi::c_int as LINENUM;
                     }
@@ -1438,7 +1651,10 @@ pub unsafe extern "C" fn commands(o: &Options) {
                     backward(number as std::ffi::c_int, LTRUE, LFALSE, LFALSE);
                     continue 's_39;
                 }
-                40 => {
+                ActionType::FFScreen => {
+                    /*
+                     * Force forward one screen.
+                     */
                     let opts = get_options();
                     if number <= 0 as std::ffi::c_int as LINENUM {
                         number = get_swindow() as LINENUM;
@@ -1450,7 +1666,10 @@ pub unsafe extern "C" fn commands(o: &Options) {
                     forward(number as std::ffi::c_int, LTRUE, LFALSE, LFALSE);
                     continue 's_39;
                 }
-                22 => {
+                ActionType::BFScreen => {
+                    /*
+                     * Force backward one screen.
+                     */
                     if number <= 0 as std::ffi::c_int as LINENUM {
                         number = get_swindow() as LINENUM;
                     }
@@ -1458,7 +1677,10 @@ pub unsafe extern "C" fn commands(o: &Options) {
                     backward(number as std::ffi::c_int, LTRUE, LFALSE, LFALSE);
                     continue 's_39;
                 }
-                50 => {
+                ActionType::FForever => {
+                    /*
+                     * Forward forever, ignoring EOF.
+                     */
                     let opts = get_options();
                     if !(get_altfilename(curr_ifile)).is_null() {
                         error(
@@ -1473,11 +1695,15 @@ pub unsafe extern "C" fn commands(o: &Options) {
                     newaction = forw_loop(0 as std::ffi::c_int);
                     continue 's_39;
                 }
-                56 => {
+                ActionType::FUntilHilite => {
                     newaction = forw_loop(1 as std::ffi::c_int);
                     continue 's_39;
                 }
-                14 => {
+                ActionType::FScroll => {
+                    /*
+                     * Forward N lines
+                     * (default same as last 'd' or 'u' command).
+                     */
                     let opts = get_options();
                     if number > 0 as std::ffi::c_int as LINENUM {
                         wscroll = number as std::ffi::c_int;
@@ -1489,7 +1715,11 @@ pub unsafe extern "C" fn commands(o: &Options) {
                     forward(wscroll, LFALSE, LFALSE, LFALSE);
                     continue 's_39;
                 }
-                4 => {
+                ActionType::BScroll => {
+                    /*
+                     * Forward N lines
+                     * (default same as last 'd' or 'u' command).
+                     */
                     if number > 0 as std::ffi::c_int as LINENUM {
                         wscroll = number as std::ffi::c_int;
                     }
@@ -1497,16 +1727,28 @@ pub unsafe extern "C" fn commands(o: &Options) {
                     backward(wscroll, LFALSE, LFALSE, LFALSE);
                     continue 's_39;
                 }
-                11 => {
+                ActionType::FRepaint => {
+                    /*
+                     * Flush buffers, then repaint screen.
+                     * Don't flush the buffers on a pipe!
+                     */
                     clear_buffers();
                     current_block = 12373568287479140350;
                     break;
                 }
-                25 => {
+                ActionType::Repaint => {
+                    /*
+                     * Repaint screen.
+                     */
                     current_block = 12373568287479140350;
                     break;
                 }
-                17 => {
+                ActionType::GoLine => {
+                    /*
+                     * Go to line N, default beginning of file.
+                     * If N <= 0, ignore jump_sline in order to avoid
+                     * empty lines before the beginning of the file.
+                     */
                     let opts = get_options();
                     save_jump_sline = opts.jump_sline;
                     if number <= 0 as std::ffi::c_int as LINENUM {
@@ -1518,7 +1760,10 @@ pub unsafe extern "C" fn commands(o: &Options) {
                     opts.jump_sline = save_jump_sline;
                     continue 's_39;
                 }
-                21 => {
+                ActionType::Percent => {
+                    /*
+                     * Go to a specified percentage into the file.
+                     */
                     if number < 0 as std::ffi::c_int as LINENUM {
                         number = 0 as std::ffi::c_int as LINENUM;
                         fraction = 0 as std::ffi::c_int as std::ffi::c_long;
@@ -1534,7 +1779,10 @@ pub unsafe extern "C" fn commands(o: &Options) {
                     jump_percent(number as std::ffi::c_int, fraction);
                     continue 's_39;
                 }
-                16 => {
+                ActionType::GoEnd => {
+                    /*
+                     * Go to line N, default end of file.
+                     */
                     cmd_exec();
                     if number <= 0 as std::ffi::c_int as LINENUM {
                         jump_forw();
@@ -1543,7 +1791,10 @@ pub unsafe extern "C" fn commands(o: &Options) {
                     }
                     continue 's_39;
                 }
-                57 => {
+                ActionType::GoEndBuf => {
+                    /*
+                     * Go to line N, default last buffered byte.
+                     */
                     cmd_exec();
                     if number <= 0 as std::ffi::c_int as LINENUM {
                         jump_forw_buffered();
@@ -1552,7 +1803,10 @@ pub unsafe extern "C" fn commands(o: &Options) {
                     }
                     continue 's_39;
                 }
-                51 => {
+                ActionType::GoPos => {
+                    /*
+                     * Go to a specified byte position in the file.
+                     */
                     let opts = get_options();
                     cmd_exec();
                     if number < 0 as std::ffi::c_int as LINENUM {
@@ -1561,7 +1815,10 @@ pub unsafe extern "C" fn commands(o: &Options) {
                     jump_line_loc(number, opts.jump_sline);
                     continue 's_39;
                 }
-                28 => {
+                ActionType::Stat => {
+                    /*
+                     * Print file name, etc.
+                     */
                     if ch_getflags() & 0o10 as std::ffi::c_int != 0 {
                         continue 's_39;
                     }
@@ -1570,15 +1827,26 @@ pub unsafe extern "C" fn commands(o: &Options) {
                     error(b"%s\0" as *const u8 as *const std::ffi::c_char, &mut parg);
                     continue 's_39;
                 }
-                31 => {
+                ActionType::Version => {
+                    /*
+                     * Print version number.
+                     */
                     cmd_exec();
                     dispversion();
                     continue 's_39;
                 }
-                24 => {
+                ActionType::Quit => {
+                    /*
+                     * Exit.
+                     */
                     if curr_ifile != 0 as *mut std::ffi::c_void
                         && ch_getflags() & 0o10 as std::ffi::c_int != 0
                     {
+                        /*
+                         * Quit while viewing the help file
+                         * just means return to viewing the
+                         * previous file.
+                         */
                         current_block = 5431927413890720344;
                         break;
                     } else {
@@ -1586,27 +1854,29 @@ pub unsafe extern "C" fn commands(o: &Options) {
                         break;
                     }
                 }
-                15 => {
+                ActionType::FSearch => {
                     let opts = get_options();
-                    search_type = (1 as std::ffi::c_int) << 0 as std::ffi::c_int | opts.def_search_type;
+                    search_type =
+                        (1 as std::ffi::c_int) << 0 as std::ffi::c_int | opts.def_search_type;
                     if number <= 0 as std::ffi::c_int as LINENUM {
                         number = 1 as std::ffi::c_int as LINENUM;
                     }
-                    literal_char = LFALSE;
+                    literal_char = false;
                     mca_search();
-                    c = getcc();
+                    c = getcc(ungot);
                 }
-                5 => {
+                ActionType::BSearch => {
                     let opts = get_options();
-                    search_type = (1 as std::ffi::c_int) << 1 as std::ffi::c_int | opts.def_search_type;
+                    search_type =
+                        (1 as std::ffi::c_int) << 1 as std::ffi::c_int | opts.def_search_type;
                     if number <= 0 as std::ffi::c_int as LINENUM {
                         number = 1 as std::ffi::c_int as LINENUM;
                     }
-                    literal_char = LFALSE;
+                    literal_char = false;
                     mca_search();
-                    c = getcc();
+                    c = getcc(ungot);
                 }
-                71 => {
+                ActionType::Osc8FSearch => {
                     cmd_exec();
                     if number <= 0 as std::ffi::c_int as LINENUM {
                         number = 1 as std::ffi::c_int as LINENUM;
@@ -1618,7 +1888,7 @@ pub unsafe extern "C" fn commands(o: &Options) {
                     );
                     continue 's_39;
                 }
-                72 => {
+                ActionType::Osc8BSearch => {
                     cmd_exec();
                     if number <= 0 as std::ffi::c_int as LINENUM {
                         number = 1 as std::ffi::c_int as LINENUM;
@@ -1630,7 +1900,7 @@ pub unsafe extern "C" fn commands(o: &Options) {
                     );
                     continue 's_39;
                 }
-                73 => {
+                ActionType::Osc8Open => {
                     if secure_allow((1 as std::ffi::c_int) << 12 as std::ffi::c_int) != 0 {
                         current_block = 6662862405959679103;
                         break;
@@ -1639,19 +1909,19 @@ pub unsafe extern "C" fn commands(o: &Options) {
                         break;
                     }
                 }
-                74 => {
+                ActionType::Osc8Jump => {
                     cmd_exec();
                     osc8_jump();
                     continue 's_39;
                 }
-                55 => {
+                ActionType::Filter => {
                     search_type = (1 as std::ffi::c_int) << 0 as std::ffi::c_int
                         | (1 as std::ffi::c_int) << 13 as std::ffi::c_int;
-                    literal_char = LFALSE;
+                    literal_char = false;
                     mca_search();
-                    c = getcc();
+                    c = getcc(ungot);
                 }
-                43 => {
+                ActionType::AgainSearch => {
                     search_type = last_search_type;
                     if number <= 0 as std::ffi::c_int as LINENUM {
                         number = 1 as std::ffi::c_int as LINENUM;
@@ -1665,7 +1935,7 @@ pub unsafe extern "C" fn commands(o: &Options) {
                     );
                     continue 's_39;
                 }
-                44 => {
+                ActionType::TAgainSearch => {
                     search_type = last_search_type | (1 as std::ffi::c_int) << 9 as std::ffi::c_int;
                     if number <= 0 as std::ffi::c_int as LINENUM {
                         number = 1 as std::ffi::c_int as LINENUM;
@@ -1679,7 +1949,7 @@ pub unsafe extern "C" fn commands(o: &Options) {
                     );
                     continue 's_39;
                 }
-                45 => {
+                ActionType::ReverseSearch => {
                     search_type = last_search_type;
                     save_search_type = search_type;
                     search_type =
@@ -1703,7 +1973,7 @@ pub unsafe extern "C" fn commands(o: &Options) {
                     last_search_type = save_search_type;
                     continue 's_39;
                 }
-                46 => {
+                ActionType::TReverseSearch => {
                     search_type = last_search_type;
                     save_search_type = search_type;
                     search_type =
@@ -1727,11 +1997,11 @@ pub unsafe extern "C" fn commands(o: &Options) {
                     last_search_type = save_search_type;
                     continue 's_39;
                 }
-                39 | 70 => {
-                    undo_search((action == 70 as std::ffi::c_int) as std::ffi::c_int as lbool);
+                ActionType::UndoSearch | ActionType::ClrSearch => {
+                    undo_search((action == ActionType::ClrSearch) as std::ffi::c_int as lbool);
                     continue 's_39;
                 }
-                19 => {
+                ActionType::Help => {
                     let opts = get_options();
                     if ch_getflags() & 0o10 as std::ffi::c_int != 0 {
                         continue 's_39;
@@ -1746,15 +2016,15 @@ pub unsafe extern "C" fn commands(o: &Options) {
                     edit(b"@/\\less/\\help/\\file/\\@\0" as *const u8 as *const std::ffi::c_char);
                     continue 's_39;
                 }
-                9 => {
+                ActionType::Examine => {
                     if secure_allow((1 as std::ffi::c_int) << 2 as std::ffi::c_int) != 0 {
                         start_mca(
-                            9 as std::ffi::c_int,
+                            ActionType::Examine,
                             b"Examine: \0" as *const u8 as *const std::ffi::c_char,
                             ml_examine,
                             0 as std::ffi::c_int,
                         );
-                        c = getcc();
+                        c = getcc(ungot);
                     } else {
                         error(
                             b"Command not available\0" as *const u8 as *const std::ffi::c_char,
@@ -1763,7 +2033,7 @@ pub unsafe extern "C" fn commands(o: &Options) {
                         continue 's_39;
                     }
                 }
-                32 => {
+                ActionType::Visual => {
                     if secure_allow((1 as std::ffi::c_int) << 1 as std::ffi::c_int) != 0 {
                         current_block = 16718638665978159145;
                         break;
@@ -1772,7 +2042,7 @@ pub unsafe extern "C" fn commands(o: &Options) {
                         break;
                     }
                 }
-                20 => {
+                ActionType::NextFile => {
                     if ntags() != 0 {
                         current_block = 18001984906674336099;
                         break;
@@ -1781,7 +2051,7 @@ pub unsafe extern "C" fn commands(o: &Options) {
                         break;
                     }
                 }
-                23 => {
+                ActionType::PrevFile => {
                     if ntags() != 0 {
                         current_block = 8193737063574930042;
                         break;
@@ -1790,7 +2060,7 @@ pub unsafe extern "C" fn commands(o: &Options) {
                         break;
                     }
                 }
-                53 => {
+                ActionType::NextTag => {
                     if number <= 0 as std::ffi::c_int as LINENUM {
                         number = 1 as std::ffi::c_int as LINENUM;
                     }
@@ -1803,7 +2073,7 @@ pub unsafe extern "C" fn commands(o: &Options) {
                         break;
                     }
                 }
-                54 => {
+                ActionType::PrevTag => {
                     if number <= 0 as std::ffi::c_int as LINENUM {
                         number = 1 as std::ffi::c_int as LINENUM;
                     }
@@ -1816,7 +2086,7 @@ pub unsafe extern "C" fn commands(o: &Options) {
                         break;
                     }
                 }
-                38 => {
+                ActionType::IndexFile => {
                     if number <= 0 as std::ffi::c_int as LINENUM {
                         number = 1 as std::ffi::c_int as LINENUM;
                     }
@@ -1829,7 +2099,7 @@ pub unsafe extern "C" fn commands(o: &Options) {
                     }
                     continue 's_39;
                 }
-                52 => {
+                ActionType::RemoveFile => {
                     if ch_getflags() & 0o10 as std::ffi::c_int != 0 {
                         continue 's_39;
                     }
@@ -1844,11 +2114,11 @@ pub unsafe extern "C" fn commands(o: &Options) {
                         break;
                     }
                 }
-                47 => {
+                ActionType::OptToggle => {
                     optflag = 1 as std::ffi::c_int;
-                    optgetname = LFALSE;
+                    optgetname = false;
                     mca_opt_toggle();
-                    c = getcc();
+                    c = getcc(ungot);
                     msg = opt_toggle_disallowed(c as std::ffi::c_int);
                     if msg.is_null() {
                         continue;
@@ -1856,26 +2126,26 @@ pub unsafe extern "C" fn commands(o: &Options) {
                     error(msg, 0 as *mut std::ffi::c_void as *mut PARG);
                     continue 's_39;
                 }
-                7 => {
+                ActionType::DispOption => {
                     optflag = 0 as std::ffi::c_int;
-                    optgetname = LFALSE;
+                    optgetname = false;
                     mca_opt_toggle();
-                    c = getcc();
+                    c = getcc(ungot);
                 }
-                10 => {
+                ActionType::FirstCmd => {
                     start_mca(
-                        10 as std::ffi::c_int,
+                        ActionType::FirstCmd,
                         b"+\0" as *const u8 as *const std::ffi::c_char,
                         0 as *mut std::ffi::c_void,
                         0 as std::ffi::c_int,
                     );
-                    c = getcc();
+                    c = getcc(ungot);
                 }
-                27 | 69 => {
+                ActionType::Shell | ActionType::PShell => {
                     if secure_allow((1 as std::ffi::c_int) << 9 as std::ffi::c_int) != 0 {
                         start_mca(
                             action,
-                            if action == 27 as std::ffi::c_int {
+                            if action == ActionType::Shell {
                                 b"!\0" as *const u8 as *const std::ffi::c_char
                             } else {
                                 b"#\0" as *const u8 as *const std::ffi::c_char
@@ -1883,7 +2153,7 @@ pub unsafe extern "C" fn commands(o: &Options) {
                             ml_shell,
                             0 as std::ffi::c_int,
                         );
-                        c = getcc();
+                        c = getcc(ungot);
                     } else {
                         error(
                             b"Command not available\0" as *const u8 as *const std::ffi::c_char,
@@ -1892,7 +2162,7 @@ pub unsafe extern "C" fn commands(o: &Options) {
                         continue 's_39;
                     }
                 }
-                26 | 63 => {
+                ActionType::SetMark | ActionType::SetMarkBot => {
                     if ch_getflags() & 0o10 as std::ffi::c_int != 0 {
                         current_block = 7991679940794782184;
                         break;
@@ -1901,31 +2171,31 @@ pub unsafe extern "C" fn commands(o: &Options) {
                         break;
                     }
                 }
-                62 => {
+                ActionType::ClrMark => {
                     start_mca(
-                        62 as std::ffi::c_int,
+                        ActionType::ClrMark,
                         b"clear mark: \0" as *const u8 as *const std::ffi::c_char,
                         0 as *mut std::ffi::c_void,
                         0 as std::ffi::c_int,
                     );
-                    c = getcc();
+                    c = getcc(ungot);
                     if is_erase_char(c) as std::ffi::c_uint != 0
                         || is_newline_char(c) as std::ffi::c_uint != 0
                     {
                         continue 's_39;
                     }
-                    clrmark(c);
+                    marks.clrmark(c as u8);
                     repaint();
                     continue 's_39;
                 }
-                18 => {
+                ActionType::GoMark => {
                     start_mca(
-                        18 as std::ffi::c_int,
+                        ActionType::GoMark,
                         b"goto mark: \0" as *const u8 as *const std::ffi::c_char,
                         0 as *mut std::ffi::c_void,
                         0 as std::ffi::c_int,
                     );
-                    c = getcc();
+                    c = getcc(ungot);
                     if is_erase_char(c) as std::ffi::c_uint != 0
                         || is_newline_char(c) as std::ffi::c_uint != 0
                     {
@@ -1935,32 +2205,32 @@ pub unsafe extern "C" fn commands(o: &Options) {
                     gomark(c);
                     continue 's_39;
                 }
-                37 => {
+                ActionType::Pipe => {
                     if secure_allow((1 as std::ffi::c_int) << 8 as std::ffi::c_int) != 0 {
                         start_mca(
-                            37 as std::ffi::c_int,
+                            ActionType::Pipe,
                             b"|mark: \0" as *const u8 as *const std::ffi::c_char,
                             0 as *mut std::ffi::c_void,
                             0 as std::ffi::c_int,
                         );
-                        c = getcc();
+                        c = getcc(ungot);
                         if is_erase_char(c) as u64 != 0 {
                             continue 's_39;
                         }
                         if is_newline_char(c) as u64 != 0 {
-                            c = '.' as i32 as std::ffi::c_char;
+                            c = '.';
                         }
-                        if badmark(c) != 0 {
+                        if marks.badmark(c as u8) {
                             continue 's_39;
                         }
                         pipec = c;
                         start_mca(
-                            37 as std::ffi::c_int,
+                            ActionType::Pipe,
                             b"!\0" as *const u8 as *const std::ffi::c_char,
                             ml_shell,
                             0 as std::ffi::c_int,
                         );
-                        c = getcc();
+                        c = getcc(ungot);
                     } else {
                         error(
                             b"Command not available\0" as *const u8 as *const std::ffi::c_char,
@@ -1969,16 +2239,16 @@ pub unsafe extern "C" fn commands(o: &Options) {
                         continue 's_39;
                     }
                 }
-                36 | 35 => {
+                ActionType::FBracket | ActionType::BBracket => {
                     start_mca(
                         action,
                         b"Brackets: \0" as *const u8 as *const std::ffi::c_char,
                         0 as *mut std::ffi::c_void,
                         0 as std::ffi::c_int,
                     );
-                    c = getcc();
+                    c = getcc(ungot);
                 }
-                41 => {
+                ActionType::LShift => {
                     let opts = get_options();
                     if number > 0 as std::ffi::c_int as LINENUM {
                         opts.shift_count = number as std::ffi::c_int;
@@ -1997,7 +2267,7 @@ pub unsafe extern "C" fn commands(o: &Options) {
                     screen_trashed();
                     continue 's_39;
                 }
-                42 => {
+                ActionType::RShift => {
                     let opts = get_options();
                     if number > 0 as std::ffi::c_int as LINENUM {
                         opts.shift_count = number as std::ffi::c_int;
@@ -2013,32 +2283,32 @@ pub unsafe extern "C" fn commands(o: &Options) {
                     screen_trashed();
                     continue 's_39;
                 }
-                58 => {
+                ActionType::LLShift => {
                     pos_rehead();
                     hshift = 0 as std::ffi::c_int;
                     screen_trashed();
                     continue 's_39;
                 }
-                59 => {
+                ActionType::RRShift => {
                     pos_rehead();
                     hshift = rrshift();
                     screen_trashed();
                     continue 's_39;
                 }
-                105 => {
-                    if mca != 105 as std::ffi::c_int {
+                ActionType::Prefix => {
+                    if mca != ActionType::Prefix {
                         cmd_reset();
                         start_mca(
-                            105 as std::ffi::c_int,
+                            ActionType::Prefix,
                             b" \0" as *const u8 as *const std::ffi::c_char,
                             0 as *mut std::ffi::c_void,
                             (1 as std::ffi::c_int) << 0 as std::ffi::c_int,
                         );
                         cmd_char(c);
                     }
-                    c = getcc();
+                    c = getcc(ungot);
                 }
-                101 => {
+                ActionType::NoAction => {
                     continue 's_39;
                 }
                 _ => {
@@ -2072,7 +2342,7 @@ pub unsafe extern "C" fn commands(o: &Options) {
                         );
                     }
                     start_mca(
-                        27 as std::ffi::c_int,
+                        ActionType::Shell,
                         b"!\0" as *const u8 as *const std::ffi::c_char,
                         ml_shell,
                         0 as std::ffi::c_int,
@@ -2094,23 +2364,23 @@ pub unsafe extern "C" fn commands(o: &Options) {
             }
             2595745308905254098 => {
                 start_mca(
-                    26 as std::ffi::c_int,
+                    ActionType::SetMark,
                     b"set mark: \0" as *const u8 as *const std::ffi::c_char,
                     0 as *mut std::ffi::c_void,
                     0 as std::ffi::c_int,
                 );
-                c = getcc();
+                c = getcc(ungot);
                 if is_erase_char(c) as std::ffi::c_uint != 0
                     || is_newline_char(c) as std::ffi::c_uint != 0
                 {
                     continue;
                 }
-                setmark(
-                    c,
-                    if action == 63 as std::ffi::c_int {
-                        -(1 as std::ffi::c_int)
+                marks.setmark(
+                    c as u8,
+                    if action == ActionType::SetMarkBot {
+                        -1
                     } else {
-                        0 as std::ffi::c_int
+                        0
                     },
                 );
                 repaint();
@@ -2252,8 +2522,8 @@ pub unsafe extern "C" fn commands(o: &Options) {
                 continue;
             }
             7991679940794782184 => {
-                if !ungot.is_null() {
-                    getcc();
+                if !ungot.is_empty() {
+                    getcc(ungot);
                 }
                 continue;
             }
@@ -2273,8 +2543,8 @@ pub unsafe extern "C" fn commands(o: &Options) {
             }
             _ => {}
         }
-        if !extra.is_null() {
-            quit(*extra as std::ffi::c_int);
+        if !extra.is_none() {
+            quit(extra.unwrap().0 as i32);
         }
         quit(0 as std::ffi::c_int);
     }

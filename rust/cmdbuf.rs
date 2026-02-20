@@ -569,22 +569,32 @@ unsafe extern "C" fn cmd_left() -> std::ffi::c_int {
     }
     return 0 as std::ffi::c_int;
 }
-unsafe extern "C" fn cmd_ichar(
-    mut cs: *const std::ffi::c_char,
-    mut clen: size_t,
-) -> std::ffi::c_int {
+
+/*
+ * Insert a char into the command buffer, at the current position.
+ */
+unsafe extern "C" fn cmd_ichar(cs: &str, clen: usize) -> std::ffi::c_int {
     let mut s: *mut std::ffi::c_char = 0 as *mut std::ffi::c_char;
     if (strlen(cmdbuf.as_mut_ptr())).wrapping_add(clen)
         >= (::core::mem::size_of::<[std::ffi::c_char; 2048]>() as std::ffi::c_ulong)
             .wrapping_sub(1 as std::ffi::c_int as std::ffi::c_ulong)
     {
+        /* No room in the command buffer for another char. */
         bell();
-        return 2 as std::ffi::c_int;
+        return CC_ERROR;
     }
+
+    /*
+     * Make room for the new character (shift the tail of the buffer right).
+     */
     s = &mut *cmdbuf.as_mut_ptr().offset((strlen
         as unsafe extern "C" fn(*const std::ffi::c_char) -> std::ffi::c_ulong)(
         cmdbuf.as_mut_ptr()
     ) as isize) as *mut std::ffi::c_char;
+
+    /*
+     * Insert the character into the buffer.
+     */
     while s >= cp {
         *s.offset(clen as isize) = *s.offset(0 as std::ffi::c_int as isize);
         s = s.offset(-1);
@@ -599,8 +609,9 @@ unsafe extern "C" fn cmd_ichar(
     have_updown_match = LFALSE;
     cmd_repaint(cp);
     cmd_right();
-    return 0 as std::ffi::c_int;
+    return CC_OK;
 }
+
 unsafe extern "C" fn cmd_erase() -> std::ffi::c_int {
     let mut s: *mut std::ffi::c_char = 0 as *mut std::ffi::c_char;
     let mut clen: std::ffi::c_int = 0;
@@ -800,7 +811,7 @@ pub unsafe extern "C" fn cmd_accept() {
 }
 unsafe extern "C" fn cmd_edit(
     mut c: std::ffi::c_char,
-    mut stay_in_completion: lbool,
+    mut stay_in_completion: bool,
 ) -> std::ffi::c_int {
     let mut action: std::ffi::c_int = 0;
     let mut flags: std::ffi::c_int = 0;
@@ -833,19 +844,19 @@ unsafe extern "C" fn cmd_edit(
             return 0 as std::ffi::c_int;
         }
         3 => {
-            if stay_in_completion as u64 == 0 {
+            if !stay_in_completion {
                 in_completion = LFALSE;
             }
             return cmd_right();
         }
         4 => {
-            if stay_in_completion as u64 == 0 {
+            if !stay_in_completion {
                 in_completion = LFALSE;
             }
             return cmd_left();
         }
         6 => {
-            if stay_in_completion as u64 == 0 {
+            if !stay_in_completion {
                 in_completion = LFALSE;
             }
             while *cp as std::ffi::c_int != '\0' as i32 && *cp as std::ffi::c_int != ' ' as i32 {
@@ -857,7 +868,7 @@ unsafe extern "C" fn cmd_edit(
             return 0 as std::ffi::c_int;
         }
         5 => {
-            if stay_in_completion as u64 == 0 {
+            if !stay_in_completion {
                 in_completion = LFALSE;
             }
             while cp > cmdbuf.as_mut_ptr()
@@ -873,7 +884,7 @@ unsafe extern "C" fn cmd_edit(
             return 0 as std::ffi::c_int;
         }
         9 => {
-            if stay_in_completion as u64 == 0 {
+            if !stay_in_completion {
                 in_completion = LFALSE;
             }
             cmd_offset = 0 as std::ffi::c_int;
@@ -882,7 +893,7 @@ unsafe extern "C" fn cmd_edit(
             return 0 as std::ffi::c_int;
         }
         10 => {
-            if stay_in_completion as u64 == 0 {
+            if !stay_in_completion {
                 in_completion = LFALSE;
             }
             while *cp as std::ffi::c_int != '\0' as i32 {
@@ -891,44 +902,44 @@ unsafe extern "C" fn cmd_edit(
             return 0 as std::ffi::c_int;
         }
         7 => {
-            if stay_in_completion as u64 == 0 {
+            if !stay_in_completion {
                 in_completion = LFALSE;
             }
             return 0 as std::ffi::c_int;
         }
         1 => {
-            if stay_in_completion as u64 == 0 {
+            if !stay_in_completion {
                 in_completion = LFALSE;
             }
             return cmd_erase();
         }
         2 => {
-            if stay_in_completion as u64 == 0 {
+            if !stay_in_completion {
                 in_completion = LFALSE;
             }
             return cmd_kill();
         }
         20 => {
-            if stay_in_completion as u64 == 0 {
+            if !stay_in_completion {
                 in_completion = LFALSE;
             }
             cmd_kill();
             return 1 as std::ffi::c_int;
         }
         11 => {
-            if stay_in_completion as u64 == 0 {
+            if !stay_in_completion {
                 in_completion = LFALSE;
             }
             return cmd_werase();
         }
         8 => {
-            if stay_in_completion as u64 == 0 {
+            if !stay_in_completion {
                 in_completion = LFALSE;
             }
             return cmd_delete();
         }
         12 => {
-            if stay_in_completion as u64 == 0 {
+            if !stay_in_completion {
                 in_completion = LFALSE;
             }
             return cmd_wdelete();
@@ -938,14 +949,14 @@ unsafe extern "C" fn cmd_edit(
             return 0 as std::ffi::c_int;
         }
         13 | 14 => {
-            if stay_in_completion as u64 == 0 {
+            if !stay_in_completion {
                 in_completion = LFALSE;
             }
             return cmd_updown(action);
         }
         17 | 18 | 15 => return cmd_complete(action),
         _ => {
-            if stay_in_completion as u64 == 0 {
+            if !stay_in_completion {
                 in_completion = LFALSE;
             }
             return 3 as std::ffi::c_int;
@@ -1192,32 +1203,49 @@ unsafe extern "C" fn cmd_uchar(mut c: std::ffi::c_char, mut plen: *mut size_t) -
     }
     return 3 as std::ffi::c_int;
 }
-unsafe extern "C" fn cmd_char2(
-    mut c: std::ffi::c_char,
-    mut stay_in_completion: lbool,
-) -> std::ffi::c_int {
+
+/*
+ * Process a single character of a multi-character command, such as
+ * a number, or the pattern of a search command.
+ * Returns:
+ *      CC_OK           The char was accepted.
+ *      CC_QUIT         The char requests the command to be aborted.
+ *      CC_ERROR        The char could not be accepted due to an error.
+ */
+unsafe extern "C" fn cmd_char2(c: char, stay_in_completion: bool) -> i32 {
     let mut len: size_t = 0;
-    let mut action: std::ffi::c_int = cmd_uchar(c, &mut len);
-    if action != 3 as std::ffi::c_int {
+    let mut action = cmd_uchar(c, &mut len);
+    if action != CC_PASS {
         return action;
     }
     if literal as u64 != 0 {
+        /*
+         * Insert the char, even if it is a line-editing char.
+         */
         literal = LFALSE;
         return cmd_ichar(cmd_mbc_buf.as_mut_ptr(), len);
     }
+
+    /*
+     * See if it is a line-editing character.
+     */
     if in_mca() != 0 && len == 1 as std::ffi::c_int as size_t {
         action = cmd_edit(c, stay_in_completion);
         match action {
-            0 | 1 => return action,
-            3 | _ => {}
+            CC_OK | CC_QUIT => return action,
+            CC_PASS | _ => {}
         }
     }
     return cmd_ichar(cmd_mbc_buf.as_mut_ptr(), len);
 }
 #[no_mangle]
-pub unsafe extern "C" fn cmd_char(mut c: std::ffi::c_char) -> std::ffi::c_int {
-    return cmd_char2(c, LFALSE);
+pub unsafe extern "C" fn cmd_char(c: char) -> i32 {
+    return cmd_char2(c, false);
 }
+
+/*
+ * Copy an ASCII string to the command buffer.
+ */
 #[no_mangle]
 pub unsafe extern "C" fn cmd_setstring(
     mut s: *const std::ffi::c_char,
@@ -1233,7 +1261,7 @@ pub unsafe extern "C" fn cmd_setstring(
         {
             c = (c as std::ffi::c_int - 'a' as i32 + 'A' as i32) as std::ffi::c_char;
         }
-        action = cmd_char2(c, LTRUE);
+        action = cmd_char2(c, true);
         if action != 0 as std::ffi::c_int {
             return action;
         }

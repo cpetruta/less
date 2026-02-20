@@ -315,7 +315,7 @@ static void expand_special_keys(unsigned char *table, size_t len)
 		}
 		*to++ = '\0';
 		/*
-		 * Fill any unused bytes between end of command and 
+		 * Fill any unused bytes between end of command and
 		 * the action byte with A_SKIP.
 		 */
 		while (to <= fm)
@@ -371,15 +371,15 @@ public void init_cmds(void)
 #endif
 	/*
 	 * Try to load lesskey source file or binary file.
-	 * If the source file succeeds, don't load binary file. 
-	 * The binary file is likely to have been generated from 
-	 * a (possibly out of date) copy of the src file, 
+	 * If the source file succeeds, don't load binary file.
+	 * The binary file is likely to have been generated from
+	 * a (possibly out of date) copy of the src file,
 	 * so loading it is at best redundant.
 	 */
 	/*
 	 * Try to add tables in system lesskey src file.
 	 */
-#if HAVE_LESSKEYSRC 
+#if HAVE_LESSKEYSRC
 	if (add_hometable(lesskey_src, "LESSKEYIN_SYSTEM", LESSKEYINFILE_SYS, TRUE) != 0)
 #endif
 	{
@@ -391,7 +391,7 @@ public void init_cmds(void)
 	/*
 	 * Try to add tables in the lesskey src file "$HOME/.lesskey".
 	 */
-#if HAVE_LESSKEYSRC 
+#if HAVE_LESSKEYSRC
 	if (add_hometable(lesskey_src, "LESSKEYIN", DEF_LESSKEYINFILE, FALSE) != 0)
 #endif
 	{
@@ -400,7 +400,7 @@ public void init_cmds(void)
 		 */
 		add_hometable(lesskey, "LESSKEY", LESSKEYFILE, FALSE);
 	}
-	
+
 	add_content_table(lesskey_content, "LESSKEY_CONTENT_SYSTEM", TRUE);
 	add_content_table(lesskey_content, "LESSKEY_CONTENT", FALSE);
 #endif /* USERFILE */
@@ -416,10 +416,10 @@ static int add_cmd_table(struct tablelist **tlist, unsigned char *buf, size_t le
 	if (len == 0)
 		return (0);
 	/*
-	 * Allocate a tablelist structure, initialize it, 
+	 * Allocate a tablelist structure, initialize it,
 	 * and link it into the list of tables.
 	 */
-	if ((t = (struct tablelist *) 
+	if ((t = (struct tablelist *)
 			calloc(1, sizeof(struct tablelist))) == NULL)
 	{
 		return (-1);
@@ -709,7 +709,7 @@ static constant unsigned char * cmd_next_entry(constant unsigned char *entry, mu
 		++entry;
 	if (cmdlen != NULL)
 		*cmdlen = ptr_diff(entry, oentry);
-	do 
+	do
 		a = *++entry; /* get action */
 	while (a == A_SKIP);
 	++entry; /* skip action */
@@ -878,7 +878,7 @@ public constant char * lgetenv_ext(constant char *var, unsigned char *env_buf, s
 }
 
 /*
- * Is a string null or empty? 
+ * Is a string null or empty?
  */
 public lbool isnullenv(constant char *s)
 {
@@ -888,7 +888,7 @@ public lbool isnullenv(constant char *s)
 #if USERFILE
 /*
  * Get an "integer" from a lesskey file.
- * Integers are stored in a funny format: 
+ * Integers are stored in a funny format:
  * two bytes, low order first, in radix KRADIX.
  */
 static size_t gint(unsigned char **sp)
@@ -907,7 +907,7 @@ static int old_lesskey(unsigned char *buf, size_t len)
 {
 	/*
 	 * Old-style lesskey file.
-	 * The file must end with either 
+	 * The file must end with either
 	 *     ...,cmd,0,action
 	 * or  ...,cmd,0,action|A_EXTRA,string,0
 	 * So the last byte or the second to last byte must be zero.
@@ -918,7 +918,7 @@ static int old_lesskey(unsigned char *buf, size_t len)
 	return (0);
 }
 
-/* 
+/*
  * Process a new (post-v241) lesskey file.
  */
 static int new_lesskey(unsigned char *buf, size_t len, lbool sysvar)
@@ -1037,14 +1037,14 @@ public int lesskey(constant char *filename, lbool sysvar)
 	 * Figure out if this is an old-style (before version 241)
 	 * or new-style lesskey file format.
 	 */
-	if (len < 4 || 
+	if (len < 4 ||
 	    buf[0] != C0_LESSKEY_MAGIC || buf[1] != C1_LESSKEY_MAGIC ||
 	    buf[2] != C2_LESSKEY_MAGIC || buf[3] != C3_LESSKEY_MAGIC)
 		return (old_lesskey(buf, (size_t) len));
 	return (new_lesskey(buf, (size_t) len, sysvar));
 }
 
-#if HAVE_LESSKEYSRC 
+#if HAVE_LESSKEYSRC
 static int lesskey_text(constant char *filename, lbool sysvar, lbool content)
 {
 	int r;
@@ -1145,7 +1145,7 @@ public int editchar(char c, int flags)
 	int nch;
 	constant char *s;
 	char usercmd[MAX_CMDLEN+1];
-	
+
 	/*
 	 * An editing character could actually be a sequence of characters;
 	 * for example, an escape sequence sent by pressing the uparrow key.
@@ -1162,7 +1162,7 @@ public int editchar(char c, int flags)
 #endif
 		return (EC_LINEKILL);
 	}
-		
+
 	/*
 	 * Collect characters in a buffer.
 	 * Start with the one we have, and get more if we need them.
@@ -1193,7 +1193,7 @@ public int editchar(char c, int flags)
 		}
 	}
 #if CMD_HISTORY
-	if (flags & ECF_NOHISTORY) 
+	if (flags & ECF_NOHISTORY)
 	{
 		/*
 		 * The caller says there is no history list.
@@ -1208,7 +1208,7 @@ public int editchar(char c, int flags)
 		}
 	}
 #endif
-	if (flags & ECF_NOCOMPLETE) 
+	if (flags & ECF_NOCOMPLETE)
 	{
 		/*
 		 * The caller says we don't want any filename completion cmds.
@@ -1228,10 +1228,10 @@ public int editchar(char c, int flags)
 		/*
 		 * We're just peeking, or we didn't understand the command.
 		 * Unget all the characters we read in the loop above.
-		 * This does NOT include the original character that was 
+		 * This does NOT include the original character that was
 		 * passed in as a parameter.
 		 */
-		while (nch > 1) 
+		while (nch > 1)
 		{
 			ungetcc(usercmd[--nch]);
 		}

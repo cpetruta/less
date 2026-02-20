@@ -178,3 +178,21 @@ pub const CC_PASS: i32 = 3; /* Char was rejected (internal) */
 pub fn CONTROL(c: char) -> char {
     ((c as u8) & 0o37) as char
 }
+
+/* Flags for editchar() */
+pub const ECF_PEEK: i32 = 0o1;
+pub const ECF_NOHISTORY: i32 = 0o2;
+pub const ECF_NOCOMPLETE: i32 = 0o4;
+pub const ECF_NORIGHTLEFT: i32 = 0o10;
+
+/// Search for subpattern
+pub fn SRCH_SUBSEARCH(i: i32) -> i32 {
+    1 << (17 + i)
+}
+
+/* Flag to toggle_option to specify how to "toggle" */
+pub const OPT_NO_TOGGLE: i32 = 0;
+pub const OPT_TOGGLE: i32 = 1;
+pub const OPT_UNSET: i32 = 2;
+pub const OPT_SET: i32 = 3;
+pub const OPT_NO_PROMPT: i32 = 0o100;

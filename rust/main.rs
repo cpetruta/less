@@ -1,5 +1,5 @@
 use crate::charset::init_charset;
-use crate::command::commands;
+use crate::command::{commands, Ungot};
 use crate::decode::{expand_cmd_tables, init_cmds, set_tables, Tables};
 use crate::decode::{isnullenv, lgetenv};
 use crate::defs::*;
@@ -149,28 +149,18 @@ const FAKE_HELPFILE: &'static str = "@/\\less/\\help/\\file/\\@";
 const FAKE_EMPTYFILE: &'static str = "@/\\less/\\empty/\\file/\\@";
 
 pub struct Less {
-    pub marks: Marks,
     pub ifiles: IFileManager,
     //pub curr_ifile: Option<IFile>,
     //pub old_ifile: Option<IFile>,
 }
 
 impl Less {
-    pub fn new(marks: Marks) -> Self {
+    pub fn new() -> Self {
         Less {
-            marks: marks,
             ifiles: IFileManager::new(),
             //curr_ifile: None,
             //old_ifile: None,
         }
-    }
-
-    pub fn marks_ref(&self) -> &Marks {
-        &self.marks
-    }
-
-    pub fn marks_ref_mut(&mut self) -> &mut Marks {
-        &mut self.marks
     }
 }
 
@@ -382,10 +372,11 @@ unsafe fn main_0() -> i32 {
      * Command line arguments override environment arguments.
      */
     is_tty = isatty(1 as std::ffi::c_int);
-    let mut less = Less::new(Marks::new());
-    let marks = less.marks_ref_mut();
+    let mut less = Less::new();
+    let mut marks = Marks::new();
+    let mut ungot = Ungot::new();
+    marks.init();
     let mut ifiles = less.ifiles;
-    less.marks.init();
     let mut tables = Tables::new();
     init_cmds(&mut tables);
     set_tables(&mut tables as *mut Tables);
@@ -527,7 +518,7 @@ unsafe fn main_0() -> i32 {
     set_output(1);
     init();
     let opts = get_options();
-    commands(opts);
+    commands(&marks, &mut ungot, opts);
     quit(0);
     return 0;
 }

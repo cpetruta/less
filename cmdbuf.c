@@ -78,16 +78,16 @@ struct mlist
 /*
  * These are the various command histories that exist.
  */
-struct mlist mlist_search =  
+struct mlist mlist_search =
 	{ &mlist_search,  &mlist_search,  &mlist_search,  NULL, 0 };
 public void *ml_search = (void *) &mlist_search;
 
-struct mlist mlist_examine = 
+struct mlist mlist_examine =
 	{ &mlist_examine, &mlist_examine, &mlist_examine, NULL, 0 };
 public void *ml_examine = (void *) &mlist_examine;
 
 #if SHELL_ESCAPE || PIPEC
-struct mlist mlist_shell =   
+struct mlist mlist_shell =
 	{ &mlist_shell,   &mlist_shell,   &mlist_shell,   NULL, 0 };
 public void *ml_shell = (void *) &mlist_shell;
 #endif
@@ -398,7 +398,7 @@ static int cmd_right(void)
 	constant char *pr;
 	char *ncp;
 	int width;
-	
+
 	if (*cp == '\0')
 	{
 		/* Already at the end of the line. */
@@ -460,14 +460,14 @@ static int cmd_left(void)
 static int cmd_ichar(constant char *cs, size_t clen)
 {
 	char *s;
-	
+
 	if (strlen(cmdbuf) + clen >= sizeof(cmdbuf)-1)
 	{
 		/* No room in the command buffer for another char. */
 		bell();
 		return (CC_ERROR);
 	}
-		
+
 	/*
 	 * Make room for the new character (shift the tail of the buffer right).
 	 */
@@ -526,7 +526,7 @@ static int cmd_erase(void)
 	 */
 	have_updown_match = FALSE;
 	cmd_repaint(cp);
-	
+
 	/*
 	 * We say that erasing the entire command string causes us
 	 * to abort the current command, if CF_QUIT_ON_ERASE is set.
@@ -654,7 +654,7 @@ static int cmd_updown(int action)
 {
 	constant char *s;
 	struct mlist *ml;
-	
+
 	if (curr_mlist == NULL)
 	{
 		/*
@@ -753,7 +753,7 @@ public void cmd_addhist(struct mlist *mlist, constant char *cmd, lbool modified)
 {
 #if CMD_HISTORY
 	struct mlist *ml;
-	
+
 	/*
 	 * Don't save a trivial command.
 	 */
@@ -844,7 +844,7 @@ static int cmd_edit(char c, lbool stay_in_completion)
 #endif
 
 	/*
-	 * Don't accept completion cmds in contexts 
+	 * Don't accept completion cmds in contexts
 	 * such as search pattern, digits, etc.
 	 */
 	if ((curr_mlist == NULL && (curr_cmdflags & CF_OPTION))
@@ -951,7 +951,7 @@ static int cmd_istr(constant char *str)
 	constant char *endline = str + strlen(str);
 	constant char *s;
 	int action;
-	
+
 	for (s = str;  *s != '\0';  )
 	{
 		constant char *os = s;
@@ -991,7 +991,7 @@ static char * delimit_word(void)
 	constant char *esc = get_meta_escape();
 	size_t esclen = strlen(esc);
 #endif
-	
+
 	/*
 	 * Move cursor to end of word.
 	 */
@@ -1064,14 +1064,14 @@ static char * delimit_word(void)
 
 /*
  * Set things up to enter file completion mode.
- * Expand the word under the cursor into a list of filenames 
+ * Expand the word under the cursor into a list of filenames
  * which start with that word, and set tk_text to that list.
  */
 static void init_file_compl(void)
 {
 	char *word;
 	char c;
-	
+
 	/*
 	 * Find the original (uncompleted) word in the command buffer.
 	 */
@@ -1152,8 +1152,8 @@ static int cmd_complete(int action)
 	if (!in_completion || action == EC_EXPAND)
 	{
 		/*
-		 * Expand the word under the cursor and 
-		 * use the first word in the expansion 
+		 * Expand the word under the cursor and
+		 * use the first word in the expansion
 		 * (or the entire expansion if we're doing EC_EXPAND).
 		 */
 		if (tk_text != NULL)
@@ -1197,13 +1197,13 @@ static int cmd_complete(int action)
 		 */
 		tk_trial = next_compl(action, tk_trial);
 	}
-	
+
 	/*
 	 * Remove the original word, or the previous trial completion.
 	 */
 	while (cp > tk_ipoint)
 		(void) cmd_erase();
-	
+
 	if (tk_trial == NULL)
 	{
 		/*
@@ -1234,9 +1234,9 @@ static int cmd_complete(int action)
 				goto fail;
 		}
 	}
-	
+
 	return (CC_OK);
-	
+
 fail:
 	in_completion = FALSE;
 	bell();
@@ -1334,7 +1334,7 @@ static int cmd_char2(char c, lbool stay_in_completion)
 		literal = FALSE;
 		return (cmd_ichar(cmd_mbc_buf, len));
 	}
-		
+
 	/*
 	 * See if it is a line-editing character.
 	 */
@@ -1350,7 +1350,7 @@ static int cmd_char2(char c, lbool stay_in_completion)
 			break;
 		}
 	}
-	
+
 	/*
 	 * Insert the char into the command buffer.
 	 */

@@ -9,7 +9,6 @@ use std::env::VarError;
 use std::ffi::CStr;
 use std::ffi::CString;
 use std::sync::LazyLock;
-
 /*
  * Routines to decode user commands.
  *
@@ -120,8 +119,12 @@ static mut allow_drag: bool = true;
 const MAX_USERCMD: u32 = 1000;
 const MAX_CMDLEN: usize = 16;
 
-#[derive(PartialEq)]
+#[derive(Copy, PartialEq)]
 pub enum ActionType {
+    Null,
+    NoMca,
+    McaMore,
+    McaDone,
     BLine,
     BScreen,
     BScroll,
@@ -146,7 +149,7 @@ pub enum ActionType {
     PrevFile,
     Quit,
     Repaint,
-    Setmark,
+    SetMark,
     Shell,
     Stat,
     FFLine,
@@ -206,6 +209,11 @@ pub enum ActionType {
     SpecialKey,
     Prefix,
     Skip,
+    // TODO Are these needed?
+    EcX11Mouse,
+    EcX116Mouse,
+    EcBackspace,
+    EcLineKill,
 
     Extra,
 }
@@ -864,31 +872,31 @@ pub unsafe extern "C" fn add_sysvar_table(tables: &mut Tables, buf: &mut [u8], l
 /*
  * Return action for a mouse wheel down event.
  */
-unsafe extern "C" fn mouse_wheel_down() -> i32 {
+unsafe extern "C" fn mouse_wheel_down() -> ActionType {
     let opts = get_options();
     return if opts.mousecap == OPT_ONPLUS as i32 {
-        A_F_MOUSE as i32
+        ActionType::FMouse
     } else {
-        A_B_MOUSE as i32
+        ActionType::BMouse
     };
 }
 
 /*
  * Return action for a mouse wheel up event.
  */
-unsafe extern "C" fn mouse_wheel_up() -> i32 {
+unsafe extern "C" fn mouse_wheel_up() -> ActionType {
     let opts = get_options();
     return if opts.mousecap == OPT_ONPLUS as i32 {
-        A_F_MOUSE as i32
+        ActionType::FMouse
     } else {
-        A_B_MOUSE as i32
+        ActionType::BMouse
     };
 }
 
 /*
  * Return action for the left mouse button trigger.
  */
-unsafe extern "C" fn mouse_button_left(x: i32, y: i32, down: bool, drag: bool) -> i32 {
+unsafe extern "C" fn mouse_button_left(x: i32, y: i32, down: bool, drag: bool) -> ActionType {
     static mut last_drag_y: i32 = -1;
     static mut last_click_y: i32 = -1;
     if down && !drag {
@@ -908,20 +916,20 @@ unsafe extern "C" fn mouse_button_left(x: i32, y: i32, down: bool, drag: bool) -
         }
     } else if !down {
         if osc8_click(y, x) as u64 != 0 {
-            return A_NOACTION as i32;
+            return ActionType::NoAction;
         }
         if y < sc_height - 1 && y == last_click_y {
             setmark('#' as i32 as std::ffi::c_char, y);
             screen_trashed();
         }
     }
-    A_NOACTION as i32
+    ActionType::NoAction
 }
 
 /*
  * Return action for the right mouse button trigger.
  */
-unsafe extern "C" fn mouse_button_right(x: i32, y: i32, down: bool, drag: bool) -> i32 {
+unsafe extern "C" fn mouse_button_right(x: i32, y: i32, down: bool, drag: bool) -> ActionType {
     /*
      * {{ unlike mouse_button_left, we could return an action,
      *    but keep it near mouse_button_left for readability. }}
@@ -930,7 +938,7 @@ unsafe extern "C" fn mouse_button_right(x: i32, y: i32, down: bool, drag: bool) 
         gomark('#' as i32 as std::ffi::c_char);
         screen_trashed();
     }
-    A_NOACTION as i32
+    ActionType::NoAction
 }
 
 /*
@@ -961,20 +969,26 @@ unsafe extern "C" fn getcc_int(pterm: &mut Option<u8>) -> Result<i32, ()> {
     }
 }
 
-unsafe extern "C" fn x11mouse_button(btn: i32, x: i32, y: i32, down: bool, drag: bool) -> i32 {
+unsafe extern "C" fn x11mouse_button(
+    btn: i32,
+    x: i32,
+    y: i32,
+    down: bool,
+    drag: bool,
+) -> ActionType {
     match btn as u8 {
         X11MOUSE_BUTTON1 => return mouse_button_left(x, y, down, drag),
         X11MOUSE_BUTTON2 | X11MOUSE_BUTTON3 => return mouse_button_right(x, y, down, drag),
         _ => {}
     }
-    A_NOACTION as i32
+    ActionType::NoAction
 }
 
 /*
  * Read suffix of mouse input and return the action to take.
  * The prefix ("\e[M") has already been read.
  */
-unsafe extern "C" fn x11mouse_action(skip: bool) -> i32 {
+unsafe extern "C" fn x11mouse_action(skip: bool) -> ActionType {
     static mut prev_b: i32 = X11MOUSE_BUTTON_REL as i32;
     let mut x = 0;
     let mut y = 0;
@@ -985,7 +999,7 @@ unsafe extern "C" fn x11mouse_action(skip: bool) -> i32 {
     x = getcc() as i32 - (X11MOUSE_OFFSET as i32) - 1;
     y = getcc() as i32 - (X11MOUSE_OFFSET as i32) - 1;
     if skip {
-        return A_NOACTION as i32;
+        return ActionType::NoAction;
     }
     match b as u8 {
         X11MOUSE_WHEEL_DOWN => return mouse_wheel_down(),
@@ -997,14 +1011,14 @@ unsafe extern "C" fn x11mouse_action(skip: bool) -> i32 {
         X11MOUSE_BUTTON_REL => return x11mouse_button(prev_b, x, y, false, drag),
         _ => {}
     }
-    A_NOACTION as i32
+    ActionType::NoAction
 }
 
 /*
  * Read suffix of mouse input and return the action to take.
  * The prefix ("\e[<") has already been read.
  */
-unsafe extern "C" fn x116mouse_action(skip: bool) -> i32 {
+unsafe extern "C" fn x116mouse_action(skip: bool) -> ActionType {
     let mut ch: u8 = 0;
     let mut x = 0;
     let mut y = 0;
@@ -1012,18 +1026,18 @@ unsafe extern "C" fn x116mouse_action(skip: bool) -> i32 {
     let mut drag = ((b as u8) & X11MOUSE_DRAG) != 0;
     b &= !(X11MOUSE_DRAG as i32);
     if b < 0 || ch != b';' {
-        return A_NOACTION as i32;
+        return ActionType::NoAction;
     }
     x = getcc_int(&mut Some(ch)).unwrap() - 1;
     if x < 0 || ch != b';' {
-        return A_NOACTION as i32;
+        return ActionType::NoAction;
     }
     y = getcc_int(&mut Some(ch)).unwrap() - 1;
     if y < 0 {
-        return A_NOACTION as i32;
+        return ActionType::NoAction;
     }
     if skip {
-        return A_NOACTION as i32;
+        return ActionType::NoAction;
     }
     match b as u8 {
         X11MOUSE_WHEEL_DOWN => return mouse_wheel_down(),
@@ -1037,7 +1051,7 @@ unsafe extern "C" fn x116mouse_action(skip: bool) -> i32 {
         }
         _ => {}
     }
-    A_NOACTION as i32
+    ActionType::NoAction
 }
 
 fn strncmp_u8(s1: &[u8], s2: &[u8], n: usize) -> i32 {
@@ -1130,15 +1144,15 @@ unsafe extern "C" fn cmd_search(
     table: &Table,
     mut extra: &mut Option<usize>,
     mut mlen: &mut Option<usize>,
-) -> i32 {
-    let mut action = A_INVALID as i32;
+) -> ActionType {
+    let mut action = ActionType::Invalid;
     let mut match_len = 0;
     if !extra.is_none() {
         *extra = Some(0);
     }
     let i = 0;
     while i < table.table.len() {
-        let mut taction: i32 = 0;
+        let mut taction = ActionType::Null;
         let mut textra: usize = 0;
         let mut cmdlen = 0;
         let mut m = cmd_match(&table.table, cmd);
@@ -1148,8 +1162,8 @@ unsafe extern "C" fn cmd_search(
             &mut Some(textra),
             &mut Some(cmdlen),
         );
-        if taction == A_END_LIST as i32 {
-            return -action;
+        if taction == ActionType::EndList {
+            return ActionType::Null;
         }
         if m >= match_len {
             if m == cmdlen {
@@ -1158,9 +1172,9 @@ unsafe extern "C" fn cmd_search(
                 if !extra.is_none() {
                     *extra = Some(textra);
                 }
-            } else if m > 0 && action == A_INVALID as i32 {
+            } else if m > 0 && action == ActionType::Invalid {
                 /* cmd is a prefix of this table entry */
-                action = A_PREFIX as i32;
+                action = ActionType::Prefix;
             }
             match_len = m;
         }
@@ -1180,8 +1194,8 @@ unsafe extern "C" fn cmd_decode(
     tlist: &[Table],
     cmd: &[u8],
     mut extra_idx: &mut Option<(usize, usize)>,
-) -> i32 {
-    let mut action = A_INVALID as i32;
+) -> ActionType {
+    let mut action = ActionType::Invalid;
     let mut match_len = 0;
 
     /*
@@ -1197,14 +1211,14 @@ unsafe extern "C" fn cmd_decode(
         let mut taction = cmd_search(cmd, t, &mut Some(tsp), &mut Some(mlen));
         if mlen >= match_len {
             match_len = mlen;
-            if taction == A_UINVALID as i32 {
-                taction = A_INVALID as i32;
+            if taction == ActionType::UInvalid {
+                taction = ActionType::Invalid;
             }
-            if taction != A_INVALID as i32 {
+            if taction != ActionType::Invalid {
                 spi = tsp;
                 *extra_idx = Some((spi, t_idx));
-                if taction < 0 {
-                    action = -taction;
+                if taction == ActionType::Null {
+                    action = ActionType::Null;
                     break;
                 } else {
                     action = taction;
@@ -1213,12 +1227,12 @@ unsafe extern "C" fn cmd_decode(
         }
         t_idx += 1;
     }
-    if action == A_X11MOUSE_IN as i32 {
+    if action == ActionType::X11MouseIn {
         action = x11mouse_action(false);
-    } else if action == A_X116MOUSE_IN as i32 {
+    } else if action == ActionType::X11MouseIn {
         action = x116mouse_action(false);
     }
-    return action as i32;
+    action
 }
 
 /*
@@ -1228,7 +1242,7 @@ pub unsafe extern "C" fn fcmd_decode(
     tables: &Tables,
     cmd: &[u8],
     mut sp: &mut Option<(usize, usize)>,
-) -> i32 {
+) -> ActionType {
     return cmd_decode(&tables.fcmd_tables, cmd, sp);
 }
 
@@ -1239,7 +1253,7 @@ pub unsafe extern "C" fn ecmd_decode(
     tables: &Tables,
     cmd: &[u8],
     sp: &mut Option<(usize, usize)>,
-) -> i32 {
+) -> ActionType {
     return cmd_decode(&tables.ecmd_tables, cmd, sp);
 }
 
@@ -1627,8 +1641,8 @@ unsafe extern "C" fn add_content_table(
 /*
  * See if a char is a special line-editing command.
  */
-pub unsafe extern "C" fn editchar(tables: &Tables, c: u8, flags: i32) -> i32 {
-    let mut action = 0;
+pub unsafe extern "C" fn editchar(tables: &Tables, c: u8, flags: i32) -> ActionType {
+    let mut action = ActionType::NoAction;
     let mut nch = 0;
     let mut sidx: Option<(usize, usize)> = Some((0, 0));
     let mut usercmd: [u8; MAX_CMDLEN + 1] = [0; MAX_CMDLEN + 1];
@@ -1641,10 +1655,10 @@ pub unsafe extern "C" fn editchar(tables: &Tables, c: u8, flags: i32) -> i32 {
      * This table is constructed to match the user's keyboard.
      */
     if c == (erase_char as u8) || c == (erase2_char as u8) {
-        return EC_BACKSPACE as i32;
+        return ActionType::EcBackspace;
     }
     if c == kill_char as u8 {
-        return EC_LINEKILL as i32;
+        return ActionType::EcLineKill;
     }
     loop {
         let ch = if nch > 0 { getcc() as u8 } else { c };
@@ -1652,20 +1666,20 @@ pub unsafe extern "C" fn editchar(tables: &Tables, c: u8, flags: i32) -> i32 {
         usercmd[nch + 1] = b'\0';
         nch += 1;
         action = ecmd_decode(tables, &usercmd, &mut sidx);
-        if !(action == A_PREFIX as i32 && nch < MAX_CMDLEN) {
+        if !(action == ActionType::Prefix && nch < MAX_CMDLEN) {
             break;
         }
     }
-    if action == EC_X11MOUSE as i32 {
+    if action == ActionType::EcX11Mouse {
         return x11mouse_action(true);
     }
-    if action == EC_X116MOUSE as i32 {
+    if action == ActionType::EcX116Mouse {
         return x116mouse_action(true);
     }
     if flags & (ECF_NORIGHTLEFT as i32) != 0 {
         match action as u8 {
             EC_RIGHT | EC_LEFT => {
-                action = A_INVALID as i32;
+                action = ActionType::Invalid;
             }
             _ => {}
         }
@@ -1675,9 +1689,9 @@ pub unsafe extern "C" fn editchar(tables: &Tables, c: u8, flags: i32) -> i32 {
          * The caller says there is no history list.
          * Reject any history-manipulation action.
          */
-        match action as u8 {
+        match action u8 {
             EC_UP | EC_DOWN => {
-                action = A_INVALID as i32;
+                action = ActionType::Invalid;
             }
             _ => {}
         }
@@ -1685,12 +1699,12 @@ pub unsafe extern "C" fn editchar(tables: &Tables, c: u8, flags: i32) -> i32 {
     if flags & (ECF_NOCOMPLETE as i32) != 0 {
         match action as u8 {
             EC_F_COMPLETE | EC_B_COMPLETE | EC_EXPAND => {
-                action = A_INVALID as i32;
+                action = ActionType::Invalid;
             }
             _ => {}
         }
     }
-    if (flags & (ECF_PEEK as i32) != 0) || (action == A_INVALID as i32) {
+    if (flags & (ECF_PEEK as i32) != 0) || (action == ActionType::Invalid) {
         /*
          * We're just peeking, or we didn't understand the command.
          * Unget all the characters we read in the loop above.
@@ -1704,7 +1718,7 @@ pub unsafe extern "C" fn editchar(tables: &Tables, c: u8, flags: i32) -> i32 {
     } else if !sidx.is_none() {
         ungetsc(tables.ecmd_tables[sidx.unwrap().1].table[sidx.unwrap().0..].as_ptr() as *const i8);
     }
-    return action;
+    action
 }
 
 // Global tables instance for access from modules that don't have it in scope
