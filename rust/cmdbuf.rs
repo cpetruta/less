@@ -1,3 +1,17 @@
+/*
+ * Copyright (C) 1984-2025  Mark Nudelman
+ *
+ * You may distribute under the terms of either the GNU General Public
+ * License or the Less License, as specified in the README file.
+ *
+ * For more information, see the README file.
+ */
+
+/*
+ * Functions which manipulate the command buffer.
+ * Used only by command() and related functions.
+ */
+
 use crate::decode::lgetenv;
 use crate::defs::*;
 use crate::opttbl::get_options;
@@ -177,6 +191,9 @@ pub struct textlist {
     pub string: *mut std::ffi::c_char,
     pub endstring: *mut std::ffi::c_char,
 }
+/*
+ * A mlist structure represents a command history.
+ */
 #[derive(Copy, Clone)]
 #[repr(C)]
 pub struct mlist {
@@ -202,14 +219,17 @@ unsafe extern "C" fn atoi(mut __nptr: *const std::ffi::c_char) -> std::ffi::c_in
 }
 #[no_mangle]
 pub static mut pasting: lbool = LFALSE;
-static mut cmdbuf: [std::ffi::c_char; 2048] = [0; 2048];
-static mut cmd_col: std::ffi::c_int = 0;
-static mut prompt_col: std::ffi::c_int = 0;
-static mut cp: *mut std::ffi::c_char = 0 as *const std::ffi::c_char as *mut std::ffi::c_char;
-static mut cmd_offset: std::ffi::c_int = 0;
-static mut literal: lbool = LFALSE;
-static mut updown_match: size_t = 0;
+static mut cmdbuf: [std::ffi::c_char; 2048] = [0; 2048]; /* Buffer for holding a multi-char command */
+static mut cmd_col: std::ffi::c_int = 0;                  /* Current column of the cursor */
+static mut prompt_col: std::ffi::c_int = 0;                /* Column of cursor just after prompt */
+static mut cp: *mut std::ffi::c_char = 0 as *const std::ffi::c_char as *mut std::ffi::c_char; /* Pointer into cmdbuf */
+static mut cmd_offset: std::ffi::c_int = 0;                /* Index into cmdbuf of first displayed char */
+static mut literal: lbool = LFALSE;                        /* Next input char should not be interpreted */
+static mut updown_match: size_t = 0;                       /* Prefix length in up/down movement */
 static mut have_updown_match: lbool = LFALSE;
+/*
+ * These variables are statics used by cmd_complete.
+ */
 static mut in_completion: lbool = LFALSE;
 static mut tk_text: *mut std::ffi::c_char = 0 as *const std::ffi::c_char as *mut std::ffi::c_char;
 static mut tk_original: *mut std::ffi::c_char =
@@ -224,6 +244,9 @@ static mut tk_tlist: textlist = textlist {
 pub static mut openquote: std::ffi::c_char = '"' as i32 as std::ffi::c_char;
 #[no_mangle]
 pub static mut closequote: std::ffi::c_char = '"' as i32 as std::ffi::c_char;
+/*
+ * These are the various command histories that exist.
+ */
 #[no_mangle]
 pub static mut mlist_search: mlist = unsafe {
     {
@@ -272,11 +295,18 @@ pub static mut mlist_shell: mlist = unsafe {
 #[no_mangle]
 pub static mut ml_shell: *mut std::ffi::c_void =
     unsafe { &mlist_shell as *const mlist as *mut mlist as *mut std::ffi::c_void };
+/*
+ * History for the current command.
+ */
 static mut curr_mlist: *mut mlist = 0 as *const mlist as *mut mlist;
 static mut curr_cmdflags: std::ffi::c_int = 0;
 static mut cmd_mbc_buf: [std::ffi::c_char; 6] = [0; 6];
 static mut cmd_mbc_buf_len: std::ffi::c_int = 0;
 static mut cmd_mbc_buf_index: std::ffi::c_int = 0;
+
+/*
+ * Reset command buffer (to empty).
+ */
 #[no_mangle]
 pub unsafe extern "C" fn cmd_reset() {
     cp = cmdbuf.as_mut_ptr();
@@ -287,6 +317,9 @@ pub unsafe extern "C" fn cmd_reset() {
     cmd_mbc_buf_len = 0 as std::ffi::c_int;
     have_updown_match = LFALSE;
 }
+/*
+ * Clear command line.
+ */
 #[no_mangle]
 pub unsafe extern "C" fn clear_cmd() {
     prompt_col = 0 as std::ffi::c_int;
@@ -294,6 +327,9 @@ pub unsafe extern "C" fn clear_cmd() {
     cmd_mbc_buf_len = 0 as std::ffi::c_int;
     have_updown_match = LFALSE;
 }
+/*
+ * Display a string, usually as a prompt for input into the command buffer.
+ */
 #[no_mangle]
 pub unsafe extern "C" fn cmd_putstr(mut s: *const std::ffi::c_char) {
     let mut prev_ch: LWCHAR = 0 as std::ffi::c_int as LWCHAR;
@@ -326,6 +362,9 @@ pub unsafe extern "C" fn cmd_putstr(mut s: *const std::ffi::c_char) {
         prev_ch = ch;
     }
 }
+/*
+ * How many characters are in the command buffer?
+ */
 #[no_mangle]
 pub unsafe extern "C" fn len_cmdbuf() -> std::ffi::c_int {
     let mut s: *const std::ffi::c_char = cmdbuf.as_mut_ptr();
@@ -337,11 +376,21 @@ pub unsafe extern "C" fn len_cmdbuf() -> std::ffi::c_int {
     }
     return len;
 }
+/*
+ * Is the command buffer empty?
+ * It is considered nonempty if there is any text in it,
+ * or if a multibyte command is being entered but not yet complete.
+ */
 #[no_mangle]
 pub unsafe extern "C" fn cmdbuf_empty() -> lbool {
     return (cp == cmdbuf.as_mut_ptr() && cmd_mbc_buf_len == 0 as std::ffi::c_int) as std::ffi::c_int
         as lbool;
 }
+/*
+ * Common part of cmd_step_right() and cmd_step_left().
+ * {{ Returning pwidth and bswidth separately is a historical artifact
+ *    since they're always the same. Maybe clean this up someday. }}
+ */
 unsafe extern "C" fn cmd_step_common(
     mut p: *mut std::ffi::c_char,
     mut ch: LWCHAR,
@@ -382,6 +431,9 @@ unsafe extern "C" fn cmd_step_common(
     }
     return pr;
 }
+/*
+ * Step a pointer one character right in the command buffer.
+ */
 unsafe extern "C" fn cmd_step_right(
     mut pp: *mut *mut std::ffi::c_char,
     mut pwidth: *mut std::ffi::c_int,
@@ -397,6 +449,9 @@ unsafe extern "C" fn cmd_step_right(
         bswidth,
     );
 }
+/*
+ * Step a pointer one character left in the command buffer.
+ */
 unsafe extern "C" fn cmd_step_left(
     mut pp: *mut *mut std::ffi::c_char,
     mut pwidth: *mut std::ffi::c_int,
@@ -412,6 +467,10 @@ unsafe extern "C" fn cmd_step_left(
         bswidth,
     );
 }
+/*
+ * Put the cursor at "home" (just after the prompt),
+ * and set cp to the corresponding char in cmdbuf.
+ */
 unsafe extern "C" fn cmd_home() {
     while cmd_col > prompt_col {
         let mut width: std::ffi::c_int = 0;
@@ -429,8 +488,15 @@ unsafe extern "C" fn cmd_home() {
     }
     cp = &mut *cmdbuf.as_mut_ptr().offset(cmd_offset as isize) as *mut std::ffi::c_char;
 }
+/*
+ * Repaint the line from cp onwards.
+ * Then position the cursor just after the char old_cp (a pointer into cmdbuf).
+ */
 #[no_mangle]
 pub unsafe extern "C" fn cmd_repaint(mut old_cp: *const std::ffi::c_char) {
+    /*
+     * Repaint the line from the current position.
+     */
     if old_cp.is_null() {
         old_cp = cp;
         cmd_home();
@@ -459,19 +525,32 @@ pub unsafe extern "C" fn cmd_repaint(mut old_cp: *const std::ffi::c_char) {
         cp = np_0;
         putstr(pr_0);
     }
+    /*
+     * Back up the cursor to the correct position.
+     */
     while cp > old_cp as *mut std::ffi::c_char {
         cmd_left();
     }
 }
+/*
+ * Repaint the entire line, without moving the cursor.
+ */
 unsafe extern "C" fn cmd_repaint_curr() {
     let mut save_cp: *mut std::ffi::c_char = cp;
     cmd_home();
     cmd_repaint(save_cp);
 }
+/*
+ * Shift the cmdbuf display left a half-screen.
+ */
 unsafe extern "C" fn cmd_lshift() {
     let mut s: *mut std::ffi::c_char = 0 as *mut std::ffi::c_char;
     let mut save_cp: *mut std::ffi::c_char = 0 as *mut std::ffi::c_char;
     let mut cols: std::ffi::c_int = 0;
+    /*
+     * Start at the first displayed char, count how far to the
+     * right we'd have to move to reach the center of the screen.
+     */
     s = cmdbuf.as_mut_ptr().offset(cmd_offset as isize);
     cols = 0 as std::ffi::c_int;
     while cols < (sc_width - prompt_col) / 2 as std::ffi::c_int
@@ -495,10 +574,18 @@ unsafe extern "C" fn cmd_lshift() {
     cmd_home();
     cmd_repaint(save_cp);
 }
+/*
+ * Shift the cmdbuf display right a half-screen.
+ */
 unsafe extern "C" fn cmd_rshift() {
     let mut s: *mut std::ffi::c_char = 0 as *mut std::ffi::c_char;
     let mut save_cp: *mut std::ffi::c_char = 0 as *mut std::ffi::c_char;
     let mut cols: std::ffi::c_int = 0;
+    /*
+     * Start at the first displayed char, count how far to the
+     * left we'd have to move to traverse a half-screen width
+     * of displayed characters.
+     */
     s = cmdbuf.as_mut_ptr().offset(cmd_offset as isize);
     cols = 0 as std::ffi::c_int;
     while cols < (sc_width - prompt_col) / 2 as std::ffi::c_int && s > cmdbuf.as_mut_ptr() {
@@ -511,11 +598,15 @@ unsafe extern "C" fn cmd_rshift() {
     cmd_home();
     cmd_repaint(save_cp);
 }
+/*
+ * Move cursor right one character.
+ */
 unsafe extern "C" fn cmd_right() -> std::ffi::c_int {
     let mut pr: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
     let mut ncp: *mut std::ffi::c_char = 0 as *mut std::ffi::c_char;
     let mut width: std::ffi::c_int = 0;
     if *cp as std::ffi::c_int == '\0' as i32 {
+        /* Already at the end of the line. */
         return 0 as std::ffi::c_int;
     }
     ncp = cp;
@@ -540,11 +631,15 @@ unsafe extern "C" fn cmd_right() -> std::ffi::c_int {
     }
     return 0 as std::ffi::c_int;
 }
+/*
+ * Move cursor left one character.
+ */
 unsafe extern "C" fn cmd_left() -> std::ffi::c_int {
     let mut ncp: *mut std::ffi::c_char = 0 as *mut std::ffi::c_char;
     let mut width: std::ffi::c_int = 0 as std::ffi::c_int;
     let mut bswidth: std::ffi::c_int = 0 as std::ffi::c_int;
     if cp <= cmdbuf.as_mut_ptr() {
+        /* Already at the beginning of the line */
         return 0 as std::ffi::c_int;
     }
     ncp = cp;
@@ -606,21 +701,38 @@ unsafe extern "C" fn cmd_ichar(cs: &str, clen: usize) -> std::ffi::c_int {
         *s = *fresh3;
         s = s.offset(1);
     }
+    /*
+     * Reprint the tail of the line from the inserted char.
+     */
     have_updown_match = LFALSE;
     cmd_repaint(cp);
     cmd_right();
     return CC_OK;
 }
 
+/*
+ * Backspace in the command buffer.
+ * Delete the char to the left of the cursor.
+ */
 unsafe extern "C" fn cmd_erase() -> std::ffi::c_int {
     let mut s: *mut std::ffi::c_char = 0 as *mut std::ffi::c_char;
     let mut clen: std::ffi::c_int = 0;
     if cp == cmdbuf.as_mut_ptr() {
+        /*
+         * Backspace past beginning of the buffer:
+         * this usually means abort the command.
+         */
         return 1 as std::ffi::c_int;
     }
+    /*
+     * Move cursor left (to the char being erased).
+     */
     s = cp;
     cmd_left();
     clen = s.offset_from(cp) as std::ffi::c_long as std::ffi::c_int;
+    /*
+     * Remove the char from the buffer (shift the buffer left).
+     */
     s = cp;
     loop {
         *s.offset(0 as std::ffi::c_int as isize) = *s.offset(clen as isize);
@@ -629,8 +741,15 @@ unsafe extern "C" fn cmd_erase() -> std::ffi::c_int {
         }
         s = s.offset(1);
     }
+    /*
+     * Repaint the buffer after the erased char.
+     */
     have_updown_match = LFALSE;
     cmd_repaint(cp);
+    /*
+     * We say that erasing the entire command string causes us
+     * to abort the current command, if CF_QUIT_ON_ERASE is set.
+     */
     if curr_cmdflags & (1 as std::ffi::c_int) << 0 as std::ffi::c_int != 0
         && cp == cmdbuf.as_mut_ptr()
         && *cp as std::ffi::c_int == '\0' as i32
@@ -639,24 +758,42 @@ unsafe extern "C" fn cmd_erase() -> std::ffi::c_int {
     }
     return 0 as std::ffi::c_int;
 }
+/*
+ * Delete the char under the cursor.
+ */
 unsafe extern "C" fn cmd_delete() -> std::ffi::c_int {
     if *cp as std::ffi::c_int == '\0' as i32 {
+        /* At end of string; there is no char under the cursor. */
         return 0 as std::ffi::c_int;
     }
+    /*
+     * Move right, then use cmd_erase.
+     */
     cmd_right();
     cmd_erase();
     return 0 as std::ffi::c_int;
 }
+/*
+ * Delete the "word" to the left of the cursor.
+ */
 unsafe extern "C" fn cmd_werase() -> std::ffi::c_int {
     if cp > cmdbuf.as_mut_ptr()
         && *cp.offset(-(1 as std::ffi::c_int) as isize) as std::ffi::c_int == ' ' as i32
     {
+        /*
+         * If the char left of cursor is a space,
+         * erase all the spaces left of cursor (to the first non-space).
+         */
         while cp > cmdbuf.as_mut_ptr()
             && *cp.offset(-(1 as std::ffi::c_int) as isize) as std::ffi::c_int == ' ' as i32
         {
             cmd_erase();
         }
     } else {
+        /*
+         * If the char left of cursor is not a space,
+         * erase all the nonspaces left of cursor (the whole "word").
+         */
         while cp > cmdbuf.as_mut_ptr()
             && *cp.offset(-(1 as std::ffi::c_int) as isize) as std::ffi::c_int != ' ' as i32
         {
@@ -665,20 +802,35 @@ unsafe extern "C" fn cmd_werase() -> std::ffi::c_int {
     }
     return 0 as std::ffi::c_int;
 }
+/*
+ * Delete the "word" under the cursor.
+ */
 unsafe extern "C" fn cmd_wdelete() -> std::ffi::c_int {
     if *cp as std::ffi::c_int == ' ' as i32 {
+        /*
+         * If the char under the cursor is a space,
+         * delete it and all the spaces right of cursor.
+         */
         while *cp as std::ffi::c_int == ' ' as i32 {
             cmd_delete();
         }
     } else {
+        /*
+         * If the char under the cursor is not a space,
+         * delete it and all nonspaces right of cursor (the whole word).
+         */
         while *cp as std::ffi::c_int != ' ' as i32 && *cp as std::ffi::c_int != '\0' as i32 {
             cmd_delete();
         }
     }
     return 0 as std::ffi::c_int;
 }
+/*
+ * Delete all chars in the command buffer.
+ */
 unsafe extern "C" fn cmd_kill() -> std::ffi::c_int {
     if cmdbuf[0 as std::ffi::c_int as usize] as std::ffi::c_int == '\0' as i32 {
+        /* Buffer is already empty; abort the current command. */
         return 1 as std::ffi::c_int;
     }
     cmd_offset = 0 as std::ffi::c_int;
@@ -686,11 +838,18 @@ unsafe extern "C" fn cmd_kill() -> std::ffi::c_int {
     *cp = '\0' as i32 as std::ffi::c_char;
     have_updown_match = LFALSE;
     cmd_repaint(cp);
+    /*
+     * We say that erasing the entire command string causes us
+     * to abort the current command, if CF_QUIT_ON_ERASE is set.
+     */
     if curr_cmdflags & (1 as std::ffi::c_int) << 0 as std::ffi::c_int != 0 {
         return 1 as std::ffi::c_int;
     }
     return 0 as std::ffi::c_int;
 }
+/*
+ * Select an mlist structure to be the current command history.
+ */
 #[no_mangle]
 pub unsafe extern "C" fn set_mlist(
     mut mlist: *mut std::ffi::c_void,
@@ -698,14 +857,23 @@ pub unsafe extern "C" fn set_mlist(
 ) {
     curr_mlist = mlist as *mut mlist;
     curr_cmdflags = cmdflags;
+    /* Make sure the next up-arrow moves to the last string in the mlist. */
     if !curr_mlist.is_null() {
         (*curr_mlist).curr_mp = curr_mlist;
     }
 }
+/*
+ * Move up or down in the currently selected command history list.
+ * Only consider entries whose first updown_match chars are equal to
+ * cmdbuf's corresponding chars.
+ */
 unsafe extern "C" fn cmd_updown(mut action: std::ffi::c_int) -> std::ffi::c_int {
     let mut s: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
     let mut ml: *mut mlist = 0 as *mut mlist;
     if curr_mlist.is_null() {
+        /*
+         * The current command has no history list.
+         */
         bell();
         return 0 as std::ffi::c_int;
     }
@@ -713,6 +881,9 @@ unsafe extern "C" fn cmd_updown(mut action: std::ffi::c_int) -> std::ffi::c_int 
         updown_match = cp.offset_from(cmdbuf.as_mut_ptr()) as std::ffi::c_long as size_t;
         have_updown_match = LTRUE;
     }
+    /*
+     * Find the next history entry which matches.
+     */
     ml = (*curr_mlist).curr_mp;
     loop {
         ml = if action == 13 as std::ffi::c_int {
@@ -721,9 +892,16 @@ unsafe extern "C" fn cmd_updown(mut action: std::ffi::c_int) -> std::ffi::c_int 
             (*ml).next
         };
         if ml == curr_mlist {
+            /*
+             * We reached the end (or beginning) of the list.
+             */
             break;
         }
         if strncmp(cmdbuf.as_mut_ptr(), (*ml).string, updown_match) == 0 as std::ffi::c_int {
+            /*
+             * This entry matches; stop here.
+             * Copy the entry into cmdbuf and echo it on the screen.
+             */
             (*curr_mlist).curr_mp = ml;
             s = (*ml).string;
             if s.is_null() {
@@ -740,9 +918,15 @@ unsafe extern "C" fn cmd_updown(mut action: std::ffi::c_int) -> std::ffi::c_int 
             return 0 as std::ffi::c_int;
         }
     }
+    /*
+     * We didn't find a history entry that matches.
+     */
     bell();
     return 0 as std::ffi::c_int;
 }
+/*
+ * Yet another lesson in the evils of global variables.
+ */
 #[no_mangle]
 pub unsafe extern "C" fn save_updown_match() -> ssize_t {
     if have_updown_match as u64 == 0 {
@@ -765,6 +949,9 @@ unsafe extern "C" fn ml_unlink(mut ml: *mut mlist) {
     (*(*ml).prev).next = (*ml).next;
     (*(*ml).next).prev = (*ml).prev;
 }
+/*
+ * Add a string to an mlist.
+ */
 #[no_mangle]
 pub unsafe extern "C" fn cmd_addhist(
     mut mlist: *mut mlist,
@@ -772,6 +959,9 @@ pub unsafe extern "C" fn cmd_addhist(
     mut modified: lbool,
 ) {
     let mut ml: *mut mlist = 0 as *mut mlist;
+    /*
+     * Don't save a trivial command.
+     */
     if strlen(cmd) == 0 as std::ffi::c_int as std::ffi::c_ulong {
         return;
     }
@@ -789,8 +979,16 @@ pub unsafe extern "C" fn cmd_addhist(
             ml = next;
         }
     }
+    /*
+     * Save the command unless it's a duplicate of the
+     * last command in the history.
+     */
     ml = (*mlist).prev;
     if ml == mlist || strcmp((*ml).string, cmd) != 0 as std::ffi::c_int {
+        /*
+         * Did not find command in history.
+         * Save the command and put it at the end of the history list.
+         */
         ml = ecalloc(
             1 as std::ffi::c_int as size_t,
             ::core::mem::size_of::<mlist>() as std::ffi::c_ulong,
@@ -799,16 +997,35 @@ pub unsafe extern "C" fn cmd_addhist(
         (*ml).modified = modified;
         ml_link(mlist, ml);
     }
+    /*
+     * Point to the cmd just after the just-accepted command.
+     * Thus, an UPARROW will always retrieve the previous command.
+     */
     (*mlist).curr_mp = (*ml).next;
 }
+/*
+ * Accept the command in the command buffer.
+ * Add it to the currently selected history list.
+ */
 #[no_mangle]
 pub unsafe extern "C" fn cmd_accept() {
+    /*
+     * Nothing to do if there is no currently selected history list.
+     */
     if curr_mlist.is_null() || curr_mlist == ml_examine as *mut mlist {
         return;
     }
     cmd_addhist(curr_mlist, cmdbuf.as_mut_ptr(), LTRUE);
     (*curr_mlist).modified = LTRUE;
 }
+/*
+ * Try to perform a line-edit function on the command buffer,
+ * using a specified char as a line-editing command.
+ * Returns:
+ *      CC_PASS The char does not invoke a line edit function.
+ *      CC_OK   Line edit function done.
+ *      CC_QUIT The char requests the current command to be aborted.
+ */
 unsafe extern "C" fn cmd_edit(
     mut c: std::ffi::c_char,
     mut stay_in_completion: bool,
@@ -816,10 +1033,20 @@ unsafe extern "C" fn cmd_edit(
     let mut action: std::ffi::c_int = 0;
     let mut flags: std::ffi::c_int = 0;
     let opts = get_options();
+    /*
+     * See if the char is indeed a line-editing command.
+     */
     flags = 0 as std::ffi::c_int;
     if curr_mlist.is_null() {
+        /*
+         * No current history; don't accept history manipulation cmds.
+         */
         flags |= 0o2 as std::ffi::c_int;
     }
+    /*
+     * Don't accept completion cmds in contexts
+     * such as search pattern, digits, etc.
+     */
     if !(curr_mlist.is_null()
         && curr_cmdflags & (1 as std::ffi::c_int) << 1 as std::ffi::c_int != 0
         || curr_mlist == ml_examine as *mut mlist
@@ -963,6 +1190,9 @@ unsafe extern "C" fn cmd_edit(
         }
     };
 }
+/*
+ * Insert a string into the command buffer, at the current position.
+ */
 unsafe extern "C" fn cmd_istr(mut str: *const std::ffi::c_char) -> std::ffi::c_int {
     let mut endline: *const std::ffi::c_char = str.offset(strlen(str) as isize);
     let mut s: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
@@ -978,6 +1208,9 @@ unsafe extern "C" fn cmd_istr(mut str: *const std::ffi::c_char) -> std::ffi::c_i
     }
     return 0 as std::ffi::c_int;
 }
+/*
+ * Set tk_original to word.
+ */
 unsafe extern "C" fn set_tk_original(mut word: *const std::ffi::c_char) {
     if !tk_original.is_null() {
         free(tk_original as *mut std::ffi::c_void);
@@ -993,6 +1226,12 @@ unsafe extern "C" fn set_tk_original(mut word: *const std::ffi::c_char) {
         cp.offset_from(word) as std::ffi::c_long as size_t,
     );
 }
+/*
+ * Find the beginning and end of the "current" word.
+ * This is the word which the cursor (cp) is inside or at the end of.
+ * Return pointer to the beginning of the word and put the
+ * cursor at the end of the word.
+ */
 unsafe extern "C" fn delimit_word() -> *mut std::ffi::c_char {
     let mut word: *mut std::ffi::c_char = 0 as *mut std::ffi::c_char;
     let mut p: *mut std::ffi::c_char = 0 as *mut std::ffi::c_char;
@@ -1000,17 +1239,36 @@ unsafe extern "C" fn delimit_word() -> *mut std::ffi::c_char {
     let mut meta_quoted: std::ffi::c_int = LFALSE as std::ffi::c_int;
     let mut esc: *const std::ffi::c_char = get_meta_escape();
     let mut esclen: size_t = strlen(esc);
+    /*
+     * Move cursor to end of word.
+     */
     if *cp as std::ffi::c_int != ' ' as i32 && *cp as std::ffi::c_int != '\0' as i32 {
+        /*
+         * Cursor is on a nonspace.
+         * Move cursor right to the next space.
+         */
         while *cp as std::ffi::c_int != ' ' as i32 && *cp as std::ffi::c_int != '\0' as i32 {
             cmd_right();
         }
     } else {
+        /*
+         * Cursor is on a space, and char to the left is a nonspace.
+         * We're already at the end of the word.
+         */
         cp > cmdbuf.as_mut_ptr()
             && *cp.offset(-(1 as std::ffi::c_int) as isize) as std::ffi::c_int != ' ' as i32;
     }
+    /*
+     * Find the beginning of the word which the cursor is in.
+     */
     if cp == cmdbuf.as_mut_ptr() {
         return 0 as *mut std::ffi::c_char;
     }
+    /*
+     * If we have an unbalanced quote (that is, an open quote
+     * without a corresponding close quote), we return everything
+     * from the open quote, including spaces.
+     */
     word = cmdbuf.as_mut_ptr();
     while word < cp {
         if *word as std::ffi::c_int != ' ' as i32 {
@@ -1044,15 +1302,32 @@ unsafe extern "C" fn delimit_word() -> *mut std::ffi::c_char {
     }
     return word;
 }
+/*
+ * Set things up to enter file completion mode.
+ * Expand the word under the cursor into a list of filenames
+ * which start with that word, and set tk_text to that list.
+ */
 unsafe extern "C" fn init_file_compl() {
     let mut word: *mut std::ffi::c_char = 0 as *mut std::ffi::c_char;
     let mut c: std::ffi::c_char = 0;
+    /*
+     * Find the original (uncompleted) word in the command buffer.
+     */
     word = delimit_word();
     if word.is_null() {
         return;
     }
+    /*
+     * Set the insertion point to the point in the command buffer
+     * where the original (uncompleted) word now sits.
+     */
     tk_ipoint = word;
     set_tk_original(word);
+    /*
+     * Get the expanded filename.
+     * This may result in a single filename, or
+     * a blank-separated list of filenames.
+     */
     c = *cp;
     *cp = '\0' as i32 as std::ffi::c_char;
     if *word as std::ffi::c_int != openquote as std::ffi::c_int {
@@ -1069,11 +1344,17 @@ unsafe extern "C" fn init_file_compl() {
     }
     *cp = c;
 }
+/*
+ * Set things up to enter option completion mode.
+ */
 unsafe extern "C" fn init_opt_compl() {
     tk_ipoint = cmdbuf.as_mut_ptr();
     set_tk_original(cmdbuf.as_mut_ptr());
     tk_text = findopts_name(cmdbuf.as_mut_ptr());
 }
+/*
+ * Return the next word in the current completion list.
+ */
 unsafe extern "C" fn next_compl(
     mut action: std::ffi::c_int,
     mut prev: *const std::ffi::c_char,
@@ -1085,10 +1366,21 @@ unsafe extern "C" fn next_compl(
     }
     return b"?\0" as *const u8 as *const std::ffi::c_char;
 }
+/*
+ * Complete the filename before (or under) the cursor.
+ * cmd_complete may be called multiple times.  The global in_completion
+ * remembers whether this call is the first time (create the list),
+ * or a subsequent time (step thru the list).
+ */
 unsafe extern "C" fn cmd_complete(mut action: std::ffi::c_int) -> std::ffi::c_int {
     let mut current_block: u64;
     let mut s: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
     if in_completion as u64 == 0 || action == 15 as std::ffi::c_int {
+        /*
+         * Expand the word under the cursor and
+         * use the first word in the expansion
+         * (or the entire expansion if we're doing EC_EXPAND).
+         */
         if !tk_text.is_null() {
             free(tk_text as *mut std::ffi::c_void);
             tk_text = 0 as *mut std::ffi::c_char;
@@ -1103,19 +1395,36 @@ unsafe extern "C" fn cmd_complete(mut action: std::ffi::c_int) -> std::ffi::c_in
             return 0 as std::ffi::c_int;
         }
         if action == 15 as std::ffi::c_int {
+            /*
+             * Use the whole list.
+             */
             tk_trial = tk_text;
         } else {
+            /*
+             * Use the first filename in the list.
+             */
             in_completion = LTRUE;
             init_textlist(&mut tk_tlist, tk_text);
             tk_trial = next_compl(action, 0 as *mut std::ffi::c_void as *mut std::ffi::c_char);
         }
     } else {
+        /*
+         * We already have a completion list.
+         * Use the next/previous filename from the list.
+         */
         tk_trial = next_compl(action, tk_trial);
     }
+    /*
+     * Remove the original word, or the previous trial completion.
+     */
     while cp > tk_ipoint as *mut std::ffi::c_char {
         cmd_erase();
     }
     if tk_trial.is_null() {
+        /*
+         * There are no more trial completions.
+         * Insert the original (uncompleted) filename.
+         */
         in_completion = LFALSE;
         if cmd_istr(tk_original) != 0 as std::ffi::c_int {
             current_block = 16725810106060436304;
@@ -1125,6 +1434,9 @@ unsafe extern "C" fn cmd_complete(mut action: std::ffi::c_int) -> std::ffi::c_in
     } else if cmd_istr(tk_trial) != 0 as std::ffi::c_int {
         current_block = 16725810106060436304;
     } else if is_dir(tk_trial) as u64 != 0 {
+        /*
+         * If it is a directory, append a slash.
+         */
         if cp > cmdbuf.as_mut_ptr()
             && *cp.offset(-(1 as std::ffi::c_int) as isize) as std::ffi::c_int
                 == closequote as std::ffi::c_int
@@ -1132,10 +1444,12 @@ unsafe extern "C" fn cmd_complete(mut action: std::ffi::c_int) -> std::ffi::c_in
             cmd_erase();
         }
         let ss = lgetenv("LESSSEPARATOR0");
+        let ss_cstring;
         if ss.is_err() {
             s = b"/\0" as *const u8 as *const std::ffi::c_char;
         } else {
-            s = CString::new(ss.unwrap()).unwrap().as_ptr();
+            ss_cstring = CString::new(ss.unwrap()).unwrap();
+            s = ss_cstring.as_ptr();
         }
         if cmd_istr(s) != 0 as std::ffi::c_int {
             current_block = 16725810106060436304;
@@ -1154,11 +1468,20 @@ unsafe extern "C" fn cmd_complete(mut action: std::ffi::c_int) -> std::ffi::c_in
         }
     };
 }
+/*
+ * Build a UTF-8 char in cmd_mbc_buf.
+ * Returns:
+ *      CC_OK    Char has been stored but we don't have a complete UTF-8 sequence yet.
+ *      CC_ERROR This is an invalid UTF-8 sequence.
+ *      CC_PASS  There is a complete UTF-8 sequence in cmd_mbc_buf.
+ *               The length of the complete sequence is returned in *plen.
+ */
 unsafe extern "C" fn cmd_uchar(mut c: std::ffi::c_char, mut plen: *mut size_t) -> std::ffi::c_int {
     if utf_mode == 0 {
         cmd_mbc_buf[0 as std::ffi::c_int as usize] = c;
         *plen = 1 as std::ffi::c_int as size_t;
     } else {
+        /* Perform strict validation in all possible cases. */
         let mut current_block_24: u64;
         if cmd_mbc_buf_len == 0 as std::ffi::c_int {
             current_block_24 = 6649913226281796480;
@@ -1170,14 +1493,17 @@ unsafe extern "C" fn cmd_uchar(mut c: std::ffi::c_char, mut plen: *mut size_t) -
                 return 0 as std::ffi::c_int;
             }
             if is_utf8_well_formed(cmd_mbc_buf.as_mut_ptr(), cmd_mbc_buf_index) as u64 == 0 {
+                /* complete, but not well formed (non-shortest form), sequence */
                 cmd_mbc_buf_len = 0 as std::ffi::c_int;
                 bell();
                 return 2 as std::ffi::c_int;
             }
             current_block_24 = 26972500619410423;
         } else {
+            /* Flush incomplete (truncated) sequence. */
             cmd_mbc_buf_len = 0 as std::ffi::c_int;
             bell();
+            /* Handle new char. */
             current_block_24 = 6649913226281796480;
         }
         match current_block_24 {
@@ -1236,6 +1562,9 @@ unsafe extern "C" fn cmd_char2(c: char, stay_in_completion: bool) -> i32 {
             CC_PASS | _ => {}
         }
     }
+    /*
+     * Insert the char into the command buffer.
+     */
     return cmd_ichar(cmd_mbc_buf.as_mut_ptr(), len) as i32;
 }
 #[no_mangle]
@@ -1249,18 +1578,23 @@ pub unsafe extern "C" fn cmd_char(c: char) -> i32 {
 #[no_mangle]
 pub unsafe extern "C" fn cmd_setstring(s: &str, uc: bool) -> i32 {
     for c in s.chars() {
-        if uc && c.is_ascii_lowercase() {
-            let ch = c.to_ascii_uppercase();
-            let action = cmd_char2(ch, true);
-            if action != CC_OK {
-                return action;
-            }
+        let ch = if uc && c.is_ascii_lowercase() {
+            c.to_ascii_uppercase()
+        } else {
+            c
+        };
+        let action = cmd_char2(ch, true);
+        if action != CC_OK {
+            return action;
         }
     }
     cmd_repaint_curr();
     return CC_OK;
 }
 
+/*
+ * Return the number currently in the command buffer.
+ */
 #[no_mangle]
 pub unsafe extern "C" fn cmd_int(mut frac: *mut std::ffi::c_long) -> LINENUM {
     let mut p: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
@@ -1291,13 +1625,20 @@ pub unsafe extern "C" fn cmd_int(mut frac: *mut std::ffi::c_long) -> LINENUM {
     }
     return n;
 }
+/*
+ * Return a pointer to the command buffer.
+ */
 #[no_mangle]
 pub unsafe extern "C" fn get_cmdbuf() -> *const std::ffi::c_char {
     if cmd_mbc_buf_index < cmd_mbc_buf_len {
+        /* Don't return buffer containing an incomplete multibyte char. */
         return 0 as *const std::ffi::c_char;
     }
     return cmdbuf.as_mut_ptr();
 }
+/*
+ * Return the last (most recent) string in the current command history.
+ */
 #[no_mangle]
 pub unsafe extern "C" fn cmd_lastpattern() -> *const std::ffi::c_char {
     if curr_mlist.is_null() {
@@ -1314,17 +1655,18 @@ unsafe extern "C" fn mlist_size(mut ml: *mut mlist) -> std::ffi::c_int {
     }
     return size;
 }
+/*
+ * Get the name of the history file.
+ */
 unsafe extern "C" fn histfile_find(mut must_exist: lbool) -> *mut std::ffi::c_char {
-    let mut home: *const std::ffi::c_char =
-        CString::new(lgetenv("HOME").unwrap()).unwrap().as_ptr();
+    let home_cstring = CString::new(lgetenv("HOME").unwrap_or_default()).unwrap();
+    let mut home: *const std::ffi::c_char = home_cstring.as_ptr();
     let mut name: *mut std::ffi::c_char = 0 as *mut std::ffi::c_char;
-    let var = if let Ok(state_home) = lgetenv("XDG_STATE_HOME") {
-        CString::new(state_home).unwrap().as_ptr()
-    } else {
-        0 as *const std::ffi::c_char
-    };
+    /* Try in $XDG_STATE_HOME, then in $HOME/.local/state, then in $XDG_DATA_HOME, then in $HOME. */
+    let xdg_state_cstring = lgetenv("XDG_STATE_HOME").ok().map(|s| CString::new(s).unwrap());
+    let xdg_state_ptr = xdg_state_cstring.as_ref().map_or(0 as *const std::ffi::c_char, |c| c.as_ptr());
     name = dirfile(
-        var,
+        xdg_state_ptr,
         &*(b".lesshst\0" as *const u8 as *const std::ffi::c_char)
             .offset(1 as std::ffi::c_int as isize),
         must_exist as std::ffi::c_int,
@@ -1346,13 +1688,10 @@ unsafe extern "C" fn histfile_find(mut must_exist: lbool) -> *mut std::ffi::c_ch
         }
     }
     if name.is_null() {
-        let var = if let Ok(state_home) = lgetenv("XDG_DATA_HOME") {
-            CString::new(state_home).unwrap().as_ptr()
-        } else {
-            0 as *const std::ffi::c_char
-        };
+        let xdg_data_cstring = lgetenv("XDG_DATA_HOME").ok().map(|s| CString::new(s).unwrap());
+        let xdg_data_ptr = xdg_data_cstring.as_ref().map_or(0 as *const std::ffi::c_char, |c| c.as_ptr());
         name = dirfile(
-            var,
+            xdg_data_ptr,
             &*(b".lesshst\0" as *const u8 as *const std::ffi::c_char)
                 .offset(1 as std::ffi::c_int as isize),
             must_exist as std::ffi::c_int,
@@ -1369,20 +1708,24 @@ unsafe extern "C" fn histfile_find(mut must_exist: lbool) -> *mut std::ffi::c_ch
 }
 unsafe extern "C" fn histfile_name(mut must_exist: lbool) -> *mut std::ffi::c_char {
     let mut wname: *mut std::ffi::c_char = 0 as *mut std::ffi::c_char;
+    /* See if filename is explicitly specified by $LESSHISTFILE. */
     if let Ok(name) = lgetenv("LESSHISTFILE") {
+        let name_cstring = CString::new(name).unwrap();
         if strcmp(
-            CString::new(name.clone()).unwrap().as_ptr(),
+            name_cstring.as_ptr(),
             b"-\0" as *const u8 as *const std::ffi::c_char,
         ) == 0 as std::ffi::c_int
             || strcmp(
-                CString::new(name.clone()).unwrap().as_ptr(),
+                name_cstring.as_ptr(),
                 b"/dev/null\0" as *const u8 as *const std::ffi::c_char,
             ) == 0 as std::ffi::c_int
         {
+            /* $LESSHISTFILE == "-" means don't use a history file. */
             return 0 as *mut std::ffi::c_char;
         }
-        return save(CString::new(name.clone()).unwrap().as_ptr());
+        return save(name_cstring.as_ptr());
     }
+    /* See if history file is disabled in the build. */
     if strcmp(
         b".lesshst\0" as *const u8 as *const std::ffi::c_char,
         b"\0" as *const u8 as *const std::ffi::c_char,
@@ -1396,6 +1739,7 @@ unsafe extern "C" fn histfile_name(mut must_exist: lbool) -> *mut std::ffi::c_ch
     }
     wname = 0 as *mut std::ffi::c_char;
     if must_exist as u64 == 0 {
+        /* If we're writing the file and the file already exists, use it. */
         wname = histfile_find(LTRUE);
     }
     if wname.is_null() {
@@ -1403,6 +1747,9 @@ unsafe extern "C" fn histfile_name(mut must_exist: lbool) -> *mut std::ffi::c_ch
     }
     return wname;
 }
+/*
+ * Read a .lesshst file and call a callback for each line in the file.
+ */
 unsafe extern "C" fn read_cmdhist2(
     mut action: Option<
         unsafe extern "C" fn(*mut std::ffi::c_void, *mut mlist, *const std::ffi::c_char) -> (),
@@ -1522,7 +1869,7 @@ unsafe extern "C" fn read_cmdhist(
         uparam,
         0 as *mut mlist,
         0 as *const std::ffi::c_char,
-    );
+    ); /* signal end of file */
 }
 unsafe extern "C" fn addhist_init(
     mut uparam: *mut std::ffi::c_void,
@@ -1535,6 +1882,9 @@ unsafe extern "C" fn addhist_init(
         restore_mark(string);
     }
 }
+/*
+ * Initialize history from a .lesshist file.
+ */
 #[no_mangle]
 pub unsafe extern "C" fn init_cmdhist() {
     read_cmdhist(
@@ -1551,6 +1901,9 @@ pub unsafe extern "C" fn init_cmdhist() {
         LFALSE,
     );
 }
+/*
+ * Write the header for a section of the history file.
+ */
 unsafe extern "C" fn write_mlist_header(mut ml: *mut mlist, mut f: *mut FILE) {
     if ml == &mut mlist_search as *mut mlist {
         fprintf(
@@ -1566,6 +1919,9 @@ unsafe extern "C" fn write_mlist_header(mut ml: *mut mlist, mut f: *mut FILE) {
         );
     }
 }
+/*
+ * Write all modified entries in an mlist to the history file.
+ */
 unsafe extern "C" fn write_mlist(mut ml: *mut mlist, mut f: *mut FILE) {
     ml = (*ml).next;
     while !((*ml).string).is_null() {
@@ -1579,8 +1935,11 @@ unsafe extern "C" fn write_mlist(mut ml: *mut mlist, mut f: *mut FILE) {
         }
         ml = (*ml).next;
     }
-    (*ml).modified = LFALSE;
+    (*ml).modified = LFALSE; /* entire mlist is now unmodified */
 }
+/*
+ * Make a temp name in the same directory as filename.
+ */
 unsafe extern "C" fn make_tempname(mut filename: *const std::ffi::c_char) -> *mut std::ffi::c_char {
     let mut lastch: std::ffi::c_char = 0;
     let mut tempname: *mut std::ffi::c_char = ecalloc(
@@ -1600,6 +1959,11 @@ unsafe extern "C" fn make_tempname(mut filename: *const std::ffi::c_char) -> *mu
     }) as std::ffi::c_char;
     return tempname;
 }
+/*
+ * Copy entries from the saved history file to a new file.
+ * At the end of each mlist, append any new entries
+ * created during this session.
+ */
 unsafe extern "C" fn copy_hist(
     mut uparam: *mut std::ffi::c_void,
     mut ml: *mut mlist,
@@ -1607,13 +1971,18 @@ unsafe extern "C" fn copy_hist(
 ) {
     let mut ctx: *mut save_ctx = uparam as *mut save_ctx;
     if !ml.is_null() && ml != (*ctx).mlist {
+        /* We're changing mlists. */
         if !((*ctx).mlist).is_null() {
+            /* Append any new entries to the end of the current mlist. */
             write_mlist((*ctx).mlist, (*ctx).fout);
         }
+        /* Write the header for the new mlist. */
         (*ctx).mlist = ml;
         write_mlist_header((*ctx).mlist, (*ctx).fout);
     }
     if string.is_null() {
+        /* End of file */
+        /* Write any sections that were not in the original file. */
         if mlist_search.modified as u64 != 0 {
             write_mlist_header(&mut mlist_search, (*ctx).fout);
             write_mlist(&mut mlist_search, (*ctx).fout);
@@ -1623,13 +1992,18 @@ unsafe extern "C" fn copy_hist(
             write_mlist(&mut mlist_shell, (*ctx).fout);
         }
     } else if !ml.is_null() {
+        /* Copy mlist entry. */
         fprintf(
             (*ctx).fout,
             b"\"%s\n\0" as *const u8 as *const std::ffi::c_char,
             string,
         );
     }
+    /* Skip marks */
 }
+/*
+ * Make a file readable only by its owner.
+ */
 unsafe extern "C" fn make_file_private(mut f: *mut FILE) {
     let mut do_chmod: lbool = LTRUE;
     let mut statbuf: stat = stat {
@@ -1663,12 +2037,16 @@ unsafe extern "C" fn make_file_private(mut f: *mut FILE) {
         || !(statbuf.st_mode & 0o170000 as std::ffi::c_int as __mode_t
             == 0o100000 as std::ffi::c_int as __mode_t)
     {
+        /* Don't chmod if not a regular file. */
         do_chmod = LFALSE;
     }
     if do_chmod as u64 != 0 {
         fchmod(fileno(f), 0o600 as std::ffi::c_int as __mode_t);
     }
 }
+/*
+ * Does the history file need to be updated?
+ */
 unsafe extern "C" fn histfile_modified() -> lbool {
     if mlist_search.modified as u64 != 0 {
         return LTRUE;
@@ -1681,6 +2059,9 @@ unsafe extern "C" fn histfile_modified() -> lbool {
     }
     return LFALSE;
 }
+/*
+ * Update the .lesshst file.
+ */
 #[no_mangle]
 pub unsafe extern "C" fn save_cmdhist() {
     let mut histname: *mut std::ffi::c_char = 0 as *mut std::ffi::c_char;
@@ -1708,7 +2089,8 @@ pub unsafe extern "C" fn save_cmdhist() {
     if !fout.is_null() {
         make_file_private(fout);
         if let Ok(s) = lgetenv("LESSHISTSIZE") {
-            histsize = atoi(CString::new(s).unwrap().as_ptr());
+            let s_cstring = CString::new(s).unwrap();
+            histsize = atoi(s_cstring.as_ptr());
         }
         if histsize <= 0 as std::ffi::c_int {
             histsize = 100 as std::ffi::c_int;
