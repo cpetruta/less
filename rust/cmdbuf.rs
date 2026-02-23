@@ -31,11 +31,6 @@ extern "C" {
         __stream: *mut FILE,
     ) -> *mut c_char;
     fn fileno(__stream: *mut FILE) -> i32;
-    fn strtol(
-        _: *const c_char,
-        _: *mut *mut c_char,
-        _: i32,
-    ) -> i64;
     fn free(_: *mut c_void);
     fn strcpy(_: *mut c_char, _: *const c_char) -> *mut c_char;
     fn strncpy(
@@ -208,14 +203,6 @@ pub struct mlist {
 pub struct save_ctx {
     pub mlist: *mut mlist,
     pub fout: *mut FILE,
-}
-#[inline]
-unsafe extern "C" fn atoi(mut __nptr: *const c_char) -> i32 {
-    return strtol(
-        __nptr,
-        0 as *mut c_void as *mut *mut c_char,
-        10 as i32,
-    ) as i32;
 }
 #[no_mangle]
 pub static mut pasting: lbool = LFALSE;
@@ -1710,31 +1697,15 @@ unsafe extern "C" fn histfile_name(mut must_exist: lbool) -> *mut c_char {
     let mut wname: *mut c_char = 0 as *mut c_char;
     /* See if filename is explicitly specified by $LESSHISTFILE. */
     if let Ok(name) = lgetenv("LESSHISTFILE") {
-        let name_cstring = CString::new(name).unwrap();
-        if strcmp(
-            name_cstring.as_ptr(),
-            b"-\0" as *const u8 as *const c_char,
-        ) == 0 as i32
-            || strcmp(
-                name_cstring.as_ptr(),
-                b"/dev/null\0" as *const u8 as *const c_char,
-            ) == 0 as i32
-        {
+        if name == "-" || name == "/dev/null" {
             /* $LESSHISTFILE == "-" means don't use a history file. */
             return 0 as *mut c_char;
         }
+        let name_cstring = CString::new(name).unwrap();
         return save(name_cstring.as_ptr());
     }
     /* See if history file is disabled in the build. */
-    if strcmp(
-        b".lesshst\0" as *const u8 as *const c_char,
-        b"\0" as *const u8 as *const c_char,
-    ) == 0 as i32
-        || strcmp(
-            b".lesshst\0" as *const u8 as *const c_char,
-            b"-\0" as *const u8 as *const c_char,
-        ) == 0 as i32
-    {
+    if ".lesshst" == "" || ".lesshst" == "-" {
         return 0 as *mut c_char;
     }
     wname = 0 as *mut c_char;
@@ -1781,7 +1752,7 @@ unsafe extern "C" fn read_cmdhist2(
         || strncmp(
             line.as_mut_ptr(),
             b".less-history-file:\0" as *const u8 as *const c_char,
-            strlen(b".less-history-file:\0" as *const u8 as *const c_char),
+            b".less-history-file:".len() as size_t,
         ) != 0 as i32
     {
         fclose(f);
@@ -2089,8 +2060,7 @@ pub unsafe extern "C" fn save_cmdhist() {
     if !fout.is_null() {
         make_file_private(fout);
         if let Ok(s) = lgetenv("LESSHISTSIZE") {
-            let s_cstring = CString::new(s).unwrap();
-            histsize = atoi(s_cstring.as_ptr());
+            histsize = s.parse::<i32>().unwrap_or(0);
         }
         if histsize <= 0 as i32 {
             histsize = 100 as i32;
