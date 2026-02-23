@@ -961,7 +961,7 @@ pub unsafe extern "C" fn cmd_addhist(
             if strcmp((*ml).string, cmd) == 0 as i32 {
                 ml_unlink(ml);
                 free((*ml).string as *mut c_void);
-                free(ml as *mut c_void);
+                drop(Box::from_raw(ml));
             }
             ml = next;
         }
@@ -976,10 +976,13 @@ pub unsafe extern "C" fn cmd_addhist(
          * Did not find command in history.
          * Save the command and put it at the end of the history list.
          */
-        ml = ecalloc(
-            1 as i32 as size_t,
-            ::core::mem::size_of::<mlist>() as u64,
-        ) as *mut mlist;
+        ml = Box::into_raw(Box::new(mlist {
+            next: 0 as *mut mlist,
+            prev: 0 as *mut mlist,
+            curr_mp: 0 as *mut mlist,
+            string: 0 as *mut c_char,
+            modified: LFALSE,
+        }));
         (*ml).string = save(cmd);
         (*ml).modified = modified;
         ml_link(mlist, ml);
