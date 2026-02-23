@@ -15,22 +15,13 @@
 use crate::decode::lgetenv;
 use crate::defs::*;
 use crate::opttbl::get_options;
-use ::c2rust_bitfields;
-use std::ffi::{c_char, c_void, CString};
+use std::ffi::{c_char, c_void, CStr, CString};
+use std::fs::File;
+use std::io::{BufRead, BufReader, BufWriter, Write};
+use std::os::unix::fs::PermissionsExt;
+use std::os::unix::io::IntoRawFd;
 extern "C" {
-    pub type _IO_wide_data;
-    pub type _IO_codecvt;
-    pub type _IO_marker;
     fn rename(__old: *const c_char, __new: *const c_char) -> i32;
-    fn fclose(__stream: *mut FILE) -> i32;
-    fn fopen(_: *const c_char, _: *const c_char) -> *mut FILE;
-    fn fprintf(_: *mut FILE, _: *const c_char, _: ...) -> i32;
-    fn fgets(
-        __s: *mut c_char,
-        __n: i32,
-        __stream: *mut FILE,
-    ) -> *mut c_char;
-    fn fileno(__stream: *mut FILE) -> i32;
     fn free(_: *mut c_void);
     fn strcpy(_: *mut c_char, _: *const c_char) -> *mut c_char;
     fn strncpy(
@@ -92,7 +83,7 @@ extern "C" {
     ) -> *mut c_char;
     fn fcomplete(s: *const c_char) -> *mut c_char;
     fn is_dir(filename: *const c_char) -> lbool;
-    fn save_marks(fout: *mut FILE, hdr: *const c_char);
+    fn save_marks(fout: *mut libc::FILE, hdr: *const c_char);
     fn restore_mark(line: *const c_char);
     fn getfraction(
         sp: *mut *const c_char,
@@ -103,73 +94,9 @@ extern "C" {
     fn putchr(ch: i32) -> i32;
     fn putstr(s: *const c_char);
     fn error(fmt: *const c_char, parg: *mut PARG);
-    fn fstat(__fd: i32, __buf: *mut stat) -> i32;
-    fn fchmod(__fd: i32, __mode: __mode_t) -> i32;
     static mut sc_width: i32;
     static mut utf_mode: i32;
     static mut marks_modified: i32;
-}
-#[derive(Copy, Clone)]
-#[repr(C)]
-pub struct timespec {
-    pub tv_sec: __time_t,
-    pub tv_nsec: __syscall_slong_t,
-}
-#[derive(Copy, Clone, BitfieldStruct)]
-#[repr(C)]
-pub struct _IO_FILE {
-    pub _flags: i32,
-    pub _IO_read_ptr: *mut c_char,
-    pub _IO_read_end: *mut c_char,
-    pub _IO_read_base: *mut c_char,
-    pub _IO_write_base: *mut c_char,
-    pub _IO_write_ptr: *mut c_char,
-    pub _IO_write_end: *mut c_char,
-    pub _IO_buf_base: *mut c_char,
-    pub _IO_buf_end: *mut c_char,
-    pub _IO_save_base: *mut c_char,
-    pub _IO_backup_base: *mut c_char,
-    pub _IO_save_end: *mut c_char,
-    pub _markers: *mut _IO_marker,
-    pub _chain: *mut _IO_FILE,
-    pub _fileno: i32,
-    #[bitfield(name = "_flags2", ty = "i32", bits = "0..=23")]
-    pub _flags2: [u8; 3],
-    pub _short_backupbuf: [c_char; 1],
-    pub _old_offset: __off_t,
-    pub _cur_column: u16,
-    pub _vtable_offset: i8,
-    pub _shortbuf: [c_char; 1],
-    pub _lock: *mut c_void,
-    pub _offset: __off64_t,
-    pub _codecvt: *mut _IO_codecvt,
-    pub _wide_data: *mut _IO_wide_data,
-    pub _freeres_list: *mut _IO_FILE,
-    pub _freeres_buf: *mut c_void,
-    pub _prevchain: *mut *mut _IO_FILE,
-    pub _mode: i32,
-    pub _unused2: [c_char; 20],
-}
-pub type _IO_lock_t = ();
-pub type FILE = _IO_FILE;
-#[derive(Copy, Clone)]
-#[repr(C)]
-pub struct stat {
-    pub st_dev: __dev_t,
-    pub st_ino: __ino_t,
-    pub st_nlink: __nlink_t,
-    pub st_mode: __mode_t,
-    pub st_uid: __uid_t,
-    pub st_gid: __gid_t,
-    pub __pad0: i32,
-    pub st_rdev: __dev_t,
-    pub st_size: __off_t,
-    pub st_blksize: __blksize_t,
-    pub st_blocks: __blkcnt_t,
-    pub st_atim: timespec,
-    pub st_mtim: timespec,
-    pub st_ctim: timespec,
-    pub __glibc_reserved: [__syscall_slong_t; 3],
 }
 #[derive(Copy, Clone)]
 #[repr(C)]
@@ -198,11 +125,9 @@ pub struct mlist {
     pub string: *mut c_char,
     pub modified: lbool,
 }
-#[derive(Copy, Clone)]
-#[repr(C)]
 pub struct save_ctx {
     pub mlist: *mut mlist,
-    pub fout: *mut FILE,
+    pub fout: *mut BufWriter<File>,
 }
 #[no_mangle]
 pub static mut pasting: lbool = LFALSE;
@@ -1724,103 +1649,61 @@ unsafe extern "C" fn histfile_name(mut must_exist: lbool) -> *mut c_char {
 /*
  * Read a .lesshst file and call a callback for each line in the file.
  */
-unsafe extern "C" fn read_cmdhist2(
-    mut action: Option<
-        unsafe extern "C" fn(*mut c_void, *mut mlist, *const c_char) -> (),
-    >,
-    mut uparam: *mut c_void,
+unsafe fn read_cmdhist2(
+    action: Option<unsafe extern "C" fn(*mut c_void, *mut mlist, *const c_char)>,
+    uparam: *mut c_void,
     mut skip_search: i32,
     mut skip_shell: i32,
 ) {
-    let mut ml: *mut mlist = 0 as *mut mlist;
-    let mut line: [c_char; 2048] = [0; 2048];
-    let mut filename: *mut c_char = 0 as *mut c_char;
-    let mut f: *mut FILE = 0 as *mut FILE;
-    let mut skip: *mut i32 = 0 as *mut i32;
-    filename = histfile_name(LTRUE);
+    let mut ml: *mut mlist = std::ptr::null_mut();
+    let mut skip: *mut i32 = std::ptr::null_mut();
+    let filename = histfile_name(LTRUE);
     if filename.is_null() {
         return;
     }
-    f = fopen(filename, b"r\0" as *const u8 as *const c_char);
+    let fname = CStr::from_ptr(filename).to_string_lossy().into_owned();
     free(filename as *mut c_void);
-    if f.is_null() {
-        return;
+    let file = match File::open(&fname) {
+        Ok(f) => f,
+        Err(_) => return,
+    };
+    let reader = BufReader::new(file);
+    let mut lines = reader.lines();
+    /* Check for the history file header. */
+    match lines.next() {
+        Some(Ok(ref l)) if l.trim_end_matches('\r') == ".less-history-file:" => {}
+        _ => return,
     }
-    if (fgets(
-        line.as_mut_ptr(),
-        ::core::mem::size_of::<[c_char; 2048]>() as u64 as i32,
-        f,
-    ))
-    .is_null()
-        || strncmp(
-            line.as_mut_ptr(),
-            b".less-history-file:\0" as *const u8 as *const c_char,
-            b".less-history-file:".len() as size_t,
-        ) != 0 as i32
-    {
-        fclose(f);
-        return;
-    }
-    while !(fgets(
-        line.as_mut_ptr(),
-        ::core::mem::size_of::<[c_char; 2048]>() as u64 as i32,
-        f,
-    ))
-    .is_null()
-    {
-        let mut p: *mut c_char = 0 as *mut c_char;
-        p = line.as_mut_ptr();
-        while *p as i32 != '\0' as i32 {
-            if *p as i32 == '\n' as i32 || *p as i32 == '\r' as i32 {
-                *p = '\0' as i32 as c_char;
-                break;
-            } else {
-                p = p.offset(1);
-            }
-        }
-        if strcmp(
-            line.as_mut_ptr(),
-            b".search\0" as *const u8 as *const c_char,
-        ) == 0 as i32
-        {
+    for line_result in lines {
+        let line = match line_result {
+            Ok(l) => l,
+            Err(_) => break,
+        };
+        if line == ".search" {
             ml = &mut mlist_search;
             skip = &mut skip_search;
-        } else if strcmp(
-            line.as_mut_ptr(),
-            b".shell\0" as *const u8 as *const c_char,
-        ) == 0 as i32
-        {
+        } else if line == ".shell" {
             ml = &mut mlist_shell;
             skip = &mut skip_shell;
-        } else if strcmp(
-            line.as_mut_ptr(),
-            b".mark\0" as *const u8 as *const c_char,
-        ) == 0 as i32
-        {
-            ml = 0 as *mut mlist;
-        } else if *line.as_mut_ptr() as i32 == '"' as i32 {
+        } else if line == ".mark" {
+            ml = std::ptr::null_mut();
+        } else if line.starts_with('"') {
             if !ml.is_null() {
-                if !skip.is_null() && *skip > 0 as i32 {
+                if !skip.is_null() && *skip > 0 {
                     *skip -= 1;
-                    *skip;
                 } else {
-                    (Some(action.expect("non-null function pointer")))
-                        .expect("non-null function pointer")(
-                        uparam,
-                        ml,
-                        line.as_mut_ptr().offset(1 as i32 as isize),
-                    );
+                    /* Pass the entry text (after the leading quote) to the callback. */
+                    let entry = CString::new(&line[1..]).unwrap_or_default();
+                    (action.unwrap())(uparam, ml, entry.as_ptr());
                 }
             }
-        } else if *line.as_mut_ptr() as i32 == 'm' as i32 {
-            (Some(action.expect("non-null function pointer"))).expect("non-null function pointer")(
-                uparam,
-                0 as *mut mlist,
-                line.as_mut_ptr(),
-            );
+        } else if line.starts_with('m') {
+            /* Mark entry -- pass the whole line. */
+            let entry = CString::new(line.as_str()).unwrap_or_default();
+            (action.unwrap())(uparam, std::ptr::null_mut(), entry.as_ptr());
         }
     }
-    fclose(f);
+    /* File is closed when `reader` drops at end of scope. */
 }
 unsafe extern "C" fn read_cmdhist(
     mut action: Option<
@@ -1878,33 +1761,22 @@ pub unsafe extern "C" fn init_cmdhist() {
 /*
  * Write the header for a section of the history file.
  */
-unsafe extern "C" fn write_mlist_header(mut ml: *mut mlist, mut f: *mut FILE) {
+unsafe fn write_mlist_header(ml: *mut mlist, f: &mut BufWriter<File>) {
     if ml == &mut mlist_search as *mut mlist {
-        fprintf(
-            f,
-            b"%s\n\0" as *const u8 as *const c_char,
-            b".search\0" as *const u8 as *const c_char,
-        );
+        writeln!(f, ".search").ok();
     } else if ml == &mut mlist_shell as *mut mlist {
-        fprintf(
-            f,
-            b"%s\n\0" as *const u8 as *const c_char,
-            b".shell\0" as *const u8 as *const c_char,
-        );
+        writeln!(f, ".shell").ok();
     }
 }
 /*
  * Write all modified entries in an mlist to the history file.
  */
-unsafe extern "C" fn write_mlist(mut ml: *mut mlist, mut f: *mut FILE) {
+unsafe fn write_mlist(mut ml: *mut mlist, f: &mut BufWriter<File>) {
     ml = (*ml).next;
     while !((*ml).string).is_null() {
-        if !((*ml).modified as u64 == 0) {
-            fprintf(
-                f,
-                b"\"%s\n\0" as *const u8 as *const c_char,
-                (*ml).string,
-            );
+        if (*ml).modified as u64 != 0 {
+            let s = CStr::from_ptr((*ml).string).to_string_lossy();
+            writeln!(f, "\"{}", s).ok();
             (*ml).modified = LFALSE;
         }
         ml = (*ml).next;
@@ -1939,83 +1811,51 @@ unsafe extern "C" fn make_tempname(mut filename: *const c_char) -> *mut c_char {
  * created during this session.
  */
 unsafe extern "C" fn copy_hist(
-    mut uparam: *mut c_void,
-    mut ml: *mut mlist,
-    mut string: *const c_char,
+    uparam: *mut c_void,
+    ml: *mut mlist,
+    string: *const c_char,
 ) {
-    let mut ctx: *mut save_ctx = uparam as *mut save_ctx;
+    let ctx: *mut save_ctx = uparam as *mut save_ctx;
+    let fout = &mut *(*ctx).fout;
     if !ml.is_null() && ml != (*ctx).mlist {
         /* We're changing mlists. */
         if !((*ctx).mlist).is_null() {
             /* Append any new entries to the end of the current mlist. */
-            write_mlist((*ctx).mlist, (*ctx).fout);
+            write_mlist((*ctx).mlist, fout);
         }
         /* Write the header for the new mlist. */
         (*ctx).mlist = ml;
-        write_mlist_header((*ctx).mlist, (*ctx).fout);
+        write_mlist_header((*ctx).mlist, fout);
     }
     if string.is_null() {
         /* End of file */
         /* Write any sections that were not in the original file. */
         if mlist_search.modified as u64 != 0 {
-            write_mlist_header(&mut mlist_search, (*ctx).fout);
-            write_mlist(&mut mlist_search, (*ctx).fout);
+            write_mlist_header(&mut mlist_search, fout);
+            write_mlist(&mut mlist_search, fout);
         }
         if mlist_shell.modified as u64 != 0 {
-            write_mlist_header(&mut mlist_shell, (*ctx).fout);
-            write_mlist(&mut mlist_shell, (*ctx).fout);
+            write_mlist_header(&mut mlist_shell, fout);
+            write_mlist(&mut mlist_shell, fout);
         }
     } else if !ml.is_null() {
         /* Copy mlist entry. */
-        fprintf(
-            (*ctx).fout,
-            b"\"%s\n\0" as *const u8 as *const c_char,
-            string,
-        );
+        let s = CStr::from_ptr(string).to_string_lossy();
+        writeln!(fout, "\"{}", s).ok();
     }
     /* Skip marks */
 }
 /*
  * Make a file readable only by its owner.
  */
-unsafe extern "C" fn make_file_private(mut f: *mut FILE) {
-    let mut do_chmod: lbool = LTRUE;
-    let mut statbuf: stat = stat {
-        st_dev: 0,
-        st_ino: 0,
-        st_nlink: 0,
-        st_mode: 0,
-        st_uid: 0,
-        st_gid: 0,
-        __pad0: 0,
-        st_rdev: 0,
-        st_size: 0,
-        st_blksize: 0,
-        st_blocks: 0,
-        st_atim: timespec {
-            tv_sec: 0,
-            tv_nsec: 0,
-        },
-        st_mtim: timespec {
-            tv_sec: 0,
-            tv_nsec: 0,
-        },
-        st_ctim: timespec {
-            tv_sec: 0,
-            tv_nsec: 0,
-        },
-        __glibc_reserved: [0; 3],
-    };
-    let mut r: i32 = fstat(fileno(f), &mut statbuf);
-    if r < 0 as i32
-        || !(statbuf.st_mode & 0o170000 as i32 as __mode_t
-            == 0o100000 as i32 as __mode_t)
-    {
-        /* Don't chmod if not a regular file. */
-        do_chmod = LFALSE;
-    }
-    if do_chmod as u64 != 0 {
-        fchmod(fileno(f), 0o600 as i32 as __mode_t);
+fn make_file_private(f: &File) {
+    if let Ok(metadata) = f.metadata() {
+        /* Only chmod regular files. */
+        if metadata.file_type().is_file() {
+            let mut perms = metadata.permissions();
+            perms.set_mode(0o600);
+            f.set_permissions(perms).ok();
+        }
     }
 }
 /*
@@ -2038,20 +1878,16 @@ unsafe extern "C" fn histfile_modified() -> lbool {
  */
 #[no_mangle]
 pub unsafe extern "C" fn save_cmdhist() {
-    let mut histname: *mut c_char = 0 as *mut c_char;
-    let mut tempname: *mut c_char = 0 as *mut c_char;
+    let histname: *mut c_char;
+    let tempname: *mut c_char;
     let mut skip_search: i32 = 0;
     let mut skip_shell: i32 = 0;
     let mut ctx: save_ctx = save_ctx {
-        mlist: 0 as *mut mlist,
-        fout: 0 as *mut FILE,
+        mlist: std::ptr::null_mut(),
+        fout: std::ptr::null_mut(),
     };
-    let mut s: *const c_char = 0 as *const c_char;
-    let mut fout: *mut FILE = 0 as *mut FILE;
-    let mut histsize: i32 = 0 as i32;
-    if secure_allow((1 as i32) << 4 as i32) == 0
-        || histfile_modified() as u64 == 0
-    {
+    let mut histsize: i32 = 0;
+    if secure_allow(SF_HISTORY) == 0 || histfile_modified() as u64 == 0 {
         return;
     }
     histname = histfile_name(LFALSE);
@@ -2059,39 +1895,40 @@ pub unsafe extern "C" fn save_cmdhist() {
         return;
     }
     tempname = make_tempname(histname);
-    fout = fopen(tempname, b"w\0" as *const u8 as *const c_char);
-    if !fout.is_null() {
-        make_file_private(fout);
+    let tempname_str = CStr::from_ptr(tempname).to_string_lossy().into_owned();
+    if let Ok(file) = File::create(&tempname_str) {
+        make_file_private(&file);
+        let mut fout = BufWriter::new(file);
         if let Ok(s) = lgetenv("LESSHISTSIZE") {
             histsize = s.parse::<i32>().unwrap_or(0);
         }
-        if histsize <= 0 as i32 {
-            histsize = 100 as i32;
+        if histsize <= 0 {
+            histsize = 100;
         }
         skip_search = mlist_size(&mut mlist_search) - histsize;
         skip_shell = mlist_size(&mut mlist_shell) - histsize;
-        fprintf(
-            fout,
-            b"%s\n\0" as *const u8 as *const c_char,
-            b".less-history-file:\0" as *const u8 as *const c_char,
-        );
-        ctx.fout = fout;
-        ctx.mlist = 0 as *mut mlist;
+        writeln!(fout, ".less-history-file:").ok();
+        ctx.fout = &mut fout as *mut BufWriter<File>;
+        ctx.mlist = std::ptr::null_mut();
         read_cmdhist(
             Some(
                 copy_hist
-                    as unsafe extern "C" fn(
-                        *mut c_void,
-                        *mut mlist,
-                        *const c_char,
-                    ) -> (),
+                    as unsafe extern "C" fn(*mut c_void, *mut mlist, *const c_char) -> (),
             ),
             &mut ctx as *mut save_ctx as *mut c_void,
             skip_search as lbool,
             skip_shell as lbool,
         );
-        save_marks(fout, b".mark\0" as *const u8 as *const c_char);
-        fclose(fout);
+        /* Flush and hand off the fd to save_marks (which needs a FILE*). */
+        fout.flush().ok();
+        let raw_fd = fout.into_inner().unwrap().into_raw_fd();
+        let c_file = libc::fdopen(raw_fd, b"a\0".as_ptr() as *const libc::c_char);
+        if !c_file.is_null() {
+            save_marks(c_file, b".mark\0".as_ptr() as *const c_char);
+            libc::fclose(c_file); /* also closes the underlying fd */
+        } else {
+            libc::close(raw_fd);
+        }
         rename(tempname, histname);
     }
     free(tempname as *mut c_void);
