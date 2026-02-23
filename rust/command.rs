@@ -1,4 +1,8 @@
-use crate::cmdbuf::cmd_char;
+use crate::cmdbuf::{
+    cmd_accept, clear_cmd, cmd_char, cmd_int, cmd_putstr, cmd_repaint, cmd_reset,
+    cmd_setstring, cmdbuf_empty, get_cmdbuf, len_cmdbuf, restore_updown_match,
+    save_updown_match, set_mlist,
+};
 use crate::decode::fcmd_decode;
 use crate::decode::ActionType;
 use crate::decode::{editchar, get_tables_mut};
@@ -40,19 +44,6 @@ extern "C" {
     fn ch_flush();
     fn ch_set_eof();
     fn ch_getflags() -> std::ffi::c_int;
-    fn cmd_reset();
-    fn clear_cmd();
-    fn cmd_putstr(s: *const std::ffi::c_char);
-    fn len_cmdbuf() -> std::ffi::c_int;
-    fn cmdbuf_empty() -> lbool;
-    fn cmd_repaint(old_cp: *const std::ffi::c_char);
-    fn set_mlist(mlist: *mut std::ffi::c_void, cmdflags: std::ffi::c_int);
-    fn save_updown_match() -> ssize_t;
-    fn restore_updown_match(udm: ssize_t);
-    fn cmd_accept();
-    fn cmd_setstring(s: *const std::ffi::c_char, uc: lbool) -> std::ffi::c_int;
-    fn cmd_int(frac: *mut std::ffi::c_long) -> LINENUM;
-    fn get_cmdbuf() -> *const std::ffi::c_char;
     fn edit(filename: *const std::ffi::c_char) -> std::ffi::c_int;
     fn edit_ifile(ifile: *mut std::ffi::c_void) -> std::ffi::c_int;
     fn edit_list(filelist: *mut std::ffi::c_char) -> std::ffi::c_int;
@@ -588,7 +579,7 @@ unsafe extern "C" fn mca_opt_nonfirst_char(c: char) -> ActionType {
              */
             cmd_reset();
             mca_opt_toggle();
-            cmd_setstring(oname, (opt_lower as u64 == 0) as std::ffi::c_int as lbool);
+            cmd_setstring(CStr::from_ptr(oname).to_str().unwrap_or(""), !opt_lower);
         }
     } else if ambig as u64 == 0 {
         bell();

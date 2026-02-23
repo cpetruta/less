@@ -1,3 +1,4 @@
+use crate::cmdbuf::{init_cmdhist, save_cmdhist};
 use crate::charset::init_charset;
 use crate::command::{commands, Ungot};
 use crate::decode::{expand_cmd_tables, init_cmds, set_tables, Tables};
@@ -45,8 +46,6 @@ extern "C" {
     fn deinit();
     fn interactive() -> std::ffi::c_int;
     fn clear_bot();
-    fn init_cmdhist();
-    fn save_cmdhist();
     fn check_altpipe_error();
     fn edit(filename: *const std::ffi::c_char) -> std::ffi::c_int;
     fn edit_next(n: std::ffi::c_int) -> std::ffi::c_int;

@@ -1,3 +1,4 @@
+use crate::cmdbuf::{cmd_lastpattern, set_mlist};
 use crate::decode::lgetenv;
 use crate::defs::*;
 use crate::opttbl::get_options;
@@ -50,8 +51,6 @@ extern "C" {
         dir: std::ffi::c_int,
         limit: *const std::ffi::c_char,
     ) -> LWCHAR;
-    fn set_mlist(mlist: *mut std::ffi::c_void, cmdflags: std::ffi::c_int);
-    fn cmd_lastpattern() -> *const std::ffi::c_char;
     fn screen_trashed();
     fn cvt_length(len: size_t, ops: std::ffi::c_int) -> size_t;
     fn cvt_alloc_chpos(len: size_t) -> *mut std::ffi::c_int;

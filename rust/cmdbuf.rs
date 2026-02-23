@@ -217,8 +217,7 @@ static mut cmd_mbc_buf_index: i32 = 0;
 /*
  * Reset command buffer (to empty).
  */
-#[no_mangle]
-pub unsafe extern "C" fn cmd_reset() {
+pub unsafe fn cmd_reset() {
     cp = cmdbuf.as_mut_ptr();
     *cp = '\0' as i32 as c_char;
     cmd_col = 0 as i32;
@@ -230,8 +229,7 @@ pub unsafe extern "C" fn cmd_reset() {
 /*
  * Clear command line.
  */
-#[no_mangle]
-pub unsafe extern "C" fn clear_cmd() {
+pub unsafe fn clear_cmd() {
     prompt_col = 0 as i32;
     cmd_col = prompt_col;
     cmd_mbc_buf_len = 0 as i32;
@@ -240,8 +238,7 @@ pub unsafe extern "C" fn clear_cmd() {
 /*
  * Display a string, usually as a prompt for input into the command buffer.
  */
-#[no_mangle]
-pub unsafe extern "C" fn cmd_putstr(mut s: *const c_char) {
+pub unsafe fn cmd_putstr(mut s: *const c_char) {
     let mut prev_ch: LWCHAR = 0 as i32 as LWCHAR;
     let mut ch: LWCHAR = 0;
     let mut endline: *const c_char = s.offset(strlen(s) as isize);
@@ -275,8 +272,7 @@ pub unsafe extern "C" fn cmd_putstr(mut s: *const c_char) {
 /*
  * How many characters are in the command buffer?
  */
-#[no_mangle]
-pub unsafe extern "C" fn len_cmdbuf() -> i32 {
+pub unsafe fn len_cmdbuf() -> i32 {
     let mut s: *const c_char = cmdbuf.as_mut_ptr();
     let mut endline: *const c_char = s.offset(strlen(s) as isize);
     let mut len: i32 = 0 as i32;
@@ -291,8 +287,7 @@ pub unsafe extern "C" fn len_cmdbuf() -> i32 {
  * It is considered nonempty if there is any text in it,
  * or if a multibyte command is being entered but not yet complete.
  */
-#[no_mangle]
-pub unsafe extern "C" fn cmdbuf_empty() -> lbool {
+pub unsafe fn cmdbuf_empty() -> lbool {
     return (cp == cmdbuf.as_mut_ptr() && cmd_mbc_buf_len == 0 as i32) as i32
         as lbool;
 }
@@ -402,8 +397,7 @@ unsafe extern "C" fn cmd_home() {
  * Repaint the line from cp onwards.
  * Then position the cursor just after the char old_cp (a pointer into cmdbuf).
  */
-#[no_mangle]
-pub unsafe extern "C" fn cmd_repaint(mut old_cp: *const c_char) {
+pub unsafe fn cmd_repaint(mut old_cp: *const c_char) {
     /*
      * Repaint the line from the current position.
      */
@@ -760,8 +754,7 @@ unsafe extern "C" fn cmd_kill() -> i32 {
 /*
  * Select an mlist structure to be the current command history.
  */
-#[no_mangle]
-pub unsafe extern "C" fn set_mlist(
+pub unsafe fn set_mlist(
     mut mlist: *mut c_void,
     mut cmdflags: i32,
 ) {
@@ -834,15 +827,13 @@ unsafe extern "C" fn cmd_updown(mut action: i32) -> i32 {
 /*
  * Yet another lesson in the evils of global variables.
  */
-#[no_mangle]
-pub unsafe extern "C" fn save_updown_match() -> ssize_t {
+pub unsafe fn save_updown_match() -> ssize_t {
     if have_updown_match as u64 == 0 {
         return -(1 as i32) as ssize_t;
     }
     return updown_match as ssize_t;
 }
-#[no_mangle]
-pub unsafe extern "C" fn restore_updown_match(mut udm: ssize_t) {
+pub unsafe fn restore_updown_match(mut udm: ssize_t) {
     updown_match = udm as size_t;
     have_updown_match = (udm != -(1 as i32) as ssize_t) as i32 as lbool;
 }
@@ -859,8 +850,7 @@ unsafe extern "C" fn ml_unlink(mut ml: *mut mlist) {
 /*
  * Add a string to an mlist.
  */
-#[no_mangle]
-pub unsafe extern "C" fn cmd_addhist(
+pub unsafe fn cmd_addhist(
     mut mlist: *mut mlist,
     mut cmd: *const c_char,
     mut modified: lbool,
@@ -919,8 +909,7 @@ pub unsafe extern "C" fn cmd_addhist(
  * Accept the command in the command buffer.
  * Add it to the currently selected history list.
  */
-#[no_mangle]
-pub unsafe extern "C" fn cmd_accept() {
+pub unsafe fn cmd_accept() {
     /*
      * Nothing to do if there is no currently selected history list.
      */
@@ -1479,16 +1468,14 @@ unsafe extern "C" fn cmd_char2(c: char, stay_in_completion: bool) -> i32 {
      */
     return cmd_ichar(cmd_mbc_buf.as_mut_ptr(), len) as i32;
 }
-#[no_mangle]
-pub unsafe extern "C" fn cmd_char(c: char) -> i32 {
+pub unsafe fn cmd_char(c: char) -> i32 {
     return cmd_char2(c, false);
 }
 
 /*
  * Copy an ASCII string to the command buffer.
  */
-#[no_mangle]
-pub unsafe extern "C" fn cmd_setstring(s: &str, uc: bool) -> i32 {
+pub unsafe fn cmd_setstring(s: &str, uc: bool) -> i32 {
     for c in s.chars() {
         let ch = if uc && c.is_ascii_lowercase() {
             c.to_ascii_uppercase()
@@ -1507,8 +1494,7 @@ pub unsafe extern "C" fn cmd_setstring(s: &str, uc: bool) -> i32 {
 /*
  * Return the number currently in the command buffer.
  */
-#[no_mangle]
-pub unsafe extern "C" fn cmd_int(mut frac: *mut i64) -> LINENUM {
+pub unsafe fn cmd_int(mut frac: *mut i64) -> LINENUM {
     let mut p: *const c_char = 0 as *const c_char;
     let mut n: LINENUM = 0 as i32 as LINENUM;
     let mut err: lbool = LFALSE;
@@ -1540,8 +1526,7 @@ pub unsafe extern "C" fn cmd_int(mut frac: *mut i64) -> LINENUM {
 /*
  * Return a pointer to the command buffer.
  */
-#[no_mangle]
-pub unsafe extern "C" fn get_cmdbuf() -> *const c_char {
+pub unsafe fn get_cmdbuf() -> *const c_char {
     if cmd_mbc_buf_index < cmd_mbc_buf_len {
         /* Don't return buffer containing an incomplete multibyte char. */
         return 0 as *const c_char;
@@ -1551,8 +1536,7 @@ pub unsafe extern "C" fn get_cmdbuf() -> *const c_char {
 /*
  * Return the last (most recent) string in the current command history.
  */
-#[no_mangle]
-pub unsafe extern "C" fn cmd_lastpattern() -> *const c_char {
+pub unsafe fn cmd_lastpattern() -> *const c_char {
     if curr_mlist.is_null() {
         return 0 as *const c_char;
     }
@@ -1741,8 +1725,7 @@ unsafe extern "C" fn addhist_init(
 /*
  * Initialize history from a .lesshist file.
  */
-#[no_mangle]
-pub unsafe extern "C" fn init_cmdhist() {
+pub unsafe fn init_cmdhist() {
     read_cmdhist(
         Some(
             addhist_init
@@ -1875,8 +1858,7 @@ unsafe extern "C" fn histfile_modified() -> lbool {
 /*
  * Update the .lesshst file.
  */
-#[no_mangle]
-pub unsafe extern "C" fn save_cmdhist() {
+pub unsafe fn save_cmdhist() {
     let histname: *mut c_char;
     let tempname: *mut c_char;
     let mut skip_search: i32 = 0;

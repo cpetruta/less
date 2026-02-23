@@ -1,3 +1,4 @@
+use crate::cmdbuf::{cmd_addhist, mlist};
 use crate::defs::*;
 use crate::filename::{open_altfile, AltFileResult};
 use crate::ifile::{IFileHandle, IFileManager, ScrPos};
@@ -17,7 +18,6 @@ extern "C" {
     pub type _IO_wide_data;
     pub type _IO_codecvt;
     pub type _IO_marker;
-    pub type mlist;
     fn pclose(__stream: *mut FILE) -> std::ffi::c_int;
     fn open(__file: *const std::ffi::c_char, __oflag: std::ffi::c_int, _: ...) -> std::ffi::c_int;
     fn creat(__file: *const std::ffi::c_char, __mode: mode_t) -> std::ffi::c_int;
@@ -32,7 +32,6 @@ extern "C" {
     fn ch_init(f: std::ffi::c_int, flags: std::ffi::c_int, nread: ssize_t);
     fn ch_close();
     fn ch_getflags() -> std::ffi::c_int;
-    fn cmd_addhist(mlist: *mut mlist, cmd: *const std::ffi::c_char, modified: lbool);
     fn ungetcc_end_command();
     fn ungetsc(s: *const std::ffi::c_char);
     fn shell_unquote(str: *const std::ffi::c_char) -> *mut std::ffi::c_char;
