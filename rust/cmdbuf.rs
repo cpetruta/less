@@ -116,13 +116,11 @@ pub struct textlist {
 /*
  * A mlist structure represents a command history.
  */
-#[derive(Copy, Clone)]
-#[repr(C)]
 pub struct mlist {
     pub next: *mut mlist,
     pub prev: *mut mlist,
     pub curr_mp: *mut mlist,
-    pub string: *mut c_char,
+    pub string: Option<CString>, /* None == sentinel (end-of-list) */
     pub modified: lbool,
 }
 pub struct save_ctx {
@@ -166,7 +164,7 @@ pub static mut mlist_search: mlist = unsafe {
             next: &mlist_search as *const mlist as *mut mlist,
             prev: &mlist_search as *const mlist as *mut mlist,
             curr_mp: &mlist_search as *const mlist as *mut mlist,
-            string: 0 as *const c_char as *mut c_char,
+            string: None,
             modified: LFALSE,
         };
         init
@@ -182,7 +180,7 @@ pub static mut mlist_examine: mlist = unsafe {
             next: &mlist_examine as *const mlist as *mut mlist,
             prev: &mlist_examine as *const mlist as *mut mlist,
             curr_mp: &mlist_examine as *const mlist as *mut mlist,
-            string: 0 as *const c_char as *mut c_char,
+            string: None,
             modified: LFALSE,
         };
         init
@@ -198,7 +196,7 @@ pub static mut mlist_shell: mlist = unsafe {
             next: &mlist_shell as *const mlist as *mut mlist,
             prev: &mlist_shell as *const mlist as *mut mlist,
             curr_mp: &mlist_shell as *const mlist as *mut mlist,
-            string: 0 as *const c_char as *mut c_char,
+            string: None,
             modified: LFALSE,
         };
         init
@@ -780,7 +778,6 @@ pub unsafe extern "C" fn set_mlist(
  * cmdbuf's corresponding chars.
  */
 unsafe extern "C" fn cmd_updown(mut action: i32) -> i32 {
-    let mut s: *const c_char = 0 as *const c_char;
     let mut ml: *mut mlist = 0 as *mut mlist;
     if curr_mlist.is_null() {
         /*
@@ -809,20 +806,18 @@ unsafe extern "C" fn cmd_updown(mut action: i32) -> i32 {
              */
             break;
         }
-        if strncmp(cmdbuf.as_mut_ptr(), (*ml).string, updown_match) == 0 as i32 {
+        let sptr = (*ml).string.as_ref()
+            .map_or(b"\0".as_ptr() as *const c_char, |cs| cs.as_ptr());
+        if strncmp(cmdbuf.as_mut_ptr(), sptr, updown_match) == 0 as i32 {
             /*
              * This entry matches; stop here.
              * Copy the entry into cmdbuf and echo it on the screen.
              */
             (*curr_mlist).curr_mp = ml;
-            s = (*ml).string;
-            if s.is_null() {
-                s = b"\0" as *const u8 as *const c_char;
-            }
             cmd_offset = 0 as i32;
             cmd_home();
             clear_eol();
-            strcpy(cmdbuf.as_mut_ptr(), s);
+            strcpy(cmdbuf.as_mut_ptr(), sptr);
             cp = cmdbuf.as_mut_ptr();
             while *cp as i32 != '\0' as i32 {
                 cmd_right();
@@ -881,11 +876,11 @@ pub unsafe extern "C" fn cmd_addhist(
     if opts.no_hist_dups != 0 {
         let mut next: *mut mlist = 0 as *mut mlist;
         ml = (*mlist).next;
-        while !((*ml).string).is_null() {
+        while (*ml).string.is_some() {
             next = (*ml).next;
-            if strcmp((*ml).string, cmd) == 0 as i32 {
+            if (*ml).string.as_ref().map_or(false, |cs| strcmp(cs.as_ptr(), cmd) == 0) {
                 ml_unlink(ml);
-                free((*ml).string as *mut c_void);
+                /* CString field is dropped automatically when Box is dropped. */
                 drop(Box::from_raw(ml));
             }
             ml = next;
@@ -896,7 +891,9 @@ pub unsafe extern "C" fn cmd_addhist(
      * last command in the history.
      */
     ml = (*mlist).prev;
-    if ml == mlist || strcmp((*ml).string, cmd) != 0 as i32 {
+    if ml == mlist
+        || (*ml).string.as_ref().map_or(true, |cs| strcmp(cs.as_ptr(), cmd) != 0)
+    {
         /*
          * Did not find command in history.
          * Save the command and put it at the end of the history list.
@@ -905,10 +902,10 @@ pub unsafe extern "C" fn cmd_addhist(
             next: 0 as *mut mlist,
             prev: 0 as *mut mlist,
             curr_mp: 0 as *mut mlist,
-            string: 0 as *mut c_char,
+            string: None,
             modified: LFALSE,
         }));
-        (*ml).string = save(cmd);
+        (*ml).string = Some(CString::from(CStr::from_ptr(cmd)));
         (*ml).modified = modified;
         ml_link(mlist, ml);
     }
@@ -1559,12 +1556,14 @@ pub unsafe extern "C" fn cmd_lastpattern() -> *const c_char {
     if curr_mlist.is_null() {
         return 0 as *const c_char;
     }
-    return (*(*(*curr_mlist).curr_mp).prev).string;
+    return (*(*(*curr_mlist).curr_mp).prev).string
+        .as_ref()
+        .map_or(std::ptr::null(), |cs| cs.as_ptr());
 }
 unsafe extern "C" fn mlist_size(mut ml: *mut mlist) -> i32 {
     let mut size: i32 = 0 as i32;
     ml = (*ml).next;
-    while !((*ml).string).is_null() {
+    while (*ml).string.is_some() {
         size += 1;
         ml = (*ml).next;
     }
@@ -1773,9 +1772,9 @@ unsafe fn write_mlist_header(ml: *mut mlist, f: &mut BufWriter<File>) {
  */
 unsafe fn write_mlist(mut ml: *mut mlist, f: &mut BufWriter<File>) {
     ml = (*ml).next;
-    while !((*ml).string).is_null() {
+    while (*ml).string.is_some() {
         if (*ml).modified as u64 != 0 {
-            let s = CStr::from_ptr((*ml).string).to_string_lossy();
+            let s = (*ml).string.as_deref().unwrap().to_string_lossy();
             writeln!(f, "\"{}", s).ok();
             (*ml).modified = LFALSE;
         }
