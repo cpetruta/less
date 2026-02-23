@@ -750,7 +750,7 @@ unsafe extern "C" fn cmd_erase() -> std::ffi::c_int {
      * We say that erasing the entire command string causes us
      * to abort the current command, if CF_QUIT_ON_ERASE is set.
      */
-    if curr_cmdflags & (1 as std::ffi::c_int) << 0 as std::ffi::c_int != 0
+    if curr_cmdflags & CF_QUIT_ON_ERASE != 0
         && cp == cmdbuf.as_mut_ptr()
         && *cp as std::ffi::c_int == '\0' as i32
     {
@@ -842,7 +842,7 @@ unsafe extern "C" fn cmd_kill() -> std::ffi::c_int {
      * We say that erasing the entire command string causes us
      * to abort the current command, if CF_QUIT_ON_ERASE is set.
      */
-    if curr_cmdflags & (1 as std::ffi::c_int) << 0 as std::ffi::c_int != 0 {
+    if curr_cmdflags & CF_QUIT_ON_ERASE != 0 {
         return 1 as std::ffi::c_int;
     }
     return 0 as std::ffi::c_int;
@@ -1041,48 +1041,48 @@ unsafe extern "C" fn cmd_edit(
         /*
          * No current history; don't accept history manipulation cmds.
          */
-        flags |= 0o2 as std::ffi::c_int;
+        flags |= ECF_NOHISTORY;
     }
     /*
      * Don't accept completion cmds in contexts
      * such as search pattern, digits, etc.
      */
     if !(curr_mlist.is_null()
-        && curr_cmdflags & (1 as std::ffi::c_int) << 1 as std::ffi::c_int != 0
+        && curr_cmdflags & CF_OPTION != 0
         || curr_mlist == ml_examine as *mut mlist
         || curr_mlist == ml_shell as *mut mlist)
     {
-        flags |= 0o4 as std::ffi::c_int;
+        flags |= ECF_NOCOMPLETE;
     }
     action = editchar(c, flags);
     if is_ignoring_input(action) as u64 != 0 {
-        return 0 as std::ffi::c_int;
+        return CC_OK;
     }
     match action {
-        101 => return 0 as std::ffi::c_int,
-        75 => {
+        A_NOACTION => return CC_OK,
+        EC_START_PASTE => {
             if opts.no_paste != 0 {
                 pasting = LTRUE;
             }
-            return 0 as std::ffi::c_int;
+            return CC_OK;
         }
-        76 => {
+        EC_END_PASTE => {
             stop_ignoring_input();
-            return 0 as std::ffi::c_int;
+            return CC_OK;
         }
-        3 => {
+        EC_RIGHT => {
             if !stay_in_completion {
                 in_completion = LFALSE;
             }
             return cmd_right();
         }
-        4 => {
+        EC_LEFT => {
             if !stay_in_completion {
                 in_completion = LFALSE;
             }
             return cmd_left();
         }
-        6 => {
+        EC_W_RIGHT => {
             if !stay_in_completion {
                 in_completion = LFALSE;
             }
@@ -1092,9 +1092,9 @@ unsafe extern "C" fn cmd_edit(
             while *cp as std::ffi::c_int == ' ' as i32 {
                 cmd_right();
             }
-            return 0 as std::ffi::c_int;
+            return CC_OK;
         }
-        5 => {
+        EC_W_LEFT => {
             if !stay_in_completion {
                 in_completion = LFALSE;
             }
@@ -1108,85 +1108,85 @@ unsafe extern "C" fn cmd_edit(
             {
                 cmd_left();
             }
-            return 0 as std::ffi::c_int;
+            return CC_OK;
         }
-        9 => {
+        EC_HOME => {
             if !stay_in_completion {
                 in_completion = LFALSE;
             }
             cmd_offset = 0 as std::ffi::c_int;
             cmd_home();
             cmd_repaint(cp);
-            return 0 as std::ffi::c_int;
+            return CC_OK;
         }
-        10 => {
+        EC_END => {
             if !stay_in_completion {
                 in_completion = LFALSE;
             }
             while *cp as std::ffi::c_int != '\0' as i32 {
                 cmd_right();
             }
-            return 0 as std::ffi::c_int;
+            return CC_OK;
         }
-        7 => {
+        EC_INSERT => {
             if !stay_in_completion {
                 in_completion = LFALSE;
             }
-            return 0 as std::ffi::c_int;
+            return CC_OK;
         }
-        1 => {
+        EC_BACKSPACE => {
             if !stay_in_completion {
                 in_completion = LFALSE;
             }
             return cmd_erase();
         }
-        2 => {
+        EC_LINEKILL => {
             if !stay_in_completion {
                 in_completion = LFALSE;
             }
             return cmd_kill();
         }
-        20 => {
+        EC_ABORT => {
             if !stay_in_completion {
                 in_completion = LFALSE;
             }
             cmd_kill();
-            return 1 as std::ffi::c_int;
+            return CC_QUIT;
         }
-        11 => {
+        EC_W_BACKSPACE => {
             if !stay_in_completion {
                 in_completion = LFALSE;
             }
             return cmd_werase();
         }
-        8 => {
+        EC_DELETE => {
             if !stay_in_completion {
                 in_completion = LFALSE;
             }
             return cmd_delete();
         }
-        12 => {
+        EC_W_DELETE => {
             if !stay_in_completion {
                 in_completion = LFALSE;
             }
             return cmd_wdelete();
         }
-        19 => {
+        EC_LITERAL => {
             literal = LTRUE;
-            return 0 as std::ffi::c_int;
+            return CC_OK;
         }
-        13 | 14 => {
+        EC_UP | EC_DOWN => {
             if !stay_in_completion {
                 in_completion = LFALSE;
             }
             return cmd_updown(action);
         }
-        17 | 18 | 15 => return cmd_complete(action),
+        EC_F_COMPLETE | EC_B_COMPLETE | EC_EXPAND => return cmd_complete(action),
         _ => {
             if !stay_in_completion {
                 in_completion = LFALSE;
             }
-            return 3 as std::ffi::c_int;
+            return CC_PASS;
         }
     };
 }
@@ -1250,13 +1250,13 @@ unsafe extern "C" fn delimit_word() -> *mut std::ffi::c_char {
         while *cp as std::ffi::c_int != ' ' as i32 && *cp as std::ffi::c_int != '\0' as i32 {
             cmd_right();
         }
-    } else {
+    } else if cp > cmdbuf.as_mut_ptr()
+        && *cp.offset(-(1 as std::ffi::c_int) as isize) as std::ffi::c_int != ' ' as i32
+    {
         /*
          * Cursor is on a space, and char to the left is a nonspace.
          * We're already at the end of the word.
          */
-        cp > cmdbuf.as_mut_ptr()
-            && *cp.offset(-(1 as std::ffi::c_int) as isize) as std::ffi::c_int != ' ' as i32;
     }
     /*
      * Find the beginning of the word which the cursor is in.
@@ -1360,8 +1360,8 @@ unsafe extern "C" fn next_compl(
     mut prev: *const std::ffi::c_char,
 ) -> *const std::ffi::c_char {
     match action {
-        17 => return forw_textlist(&mut tk_tlist, prev),
-        18 => return back_textlist(&mut tk_tlist, prev),
+        EC_F_COMPLETE => return forw_textlist(&mut tk_tlist, prev),
+        EC_B_COMPLETE => return back_textlist(&mut tk_tlist, prev),
         _ => {}
     }
     return b"?\0" as *const u8 as *const std::ffi::c_char;
@@ -1375,7 +1375,7 @@ unsafe extern "C" fn next_compl(
 unsafe extern "C" fn cmd_complete(mut action: std::ffi::c_int) -> std::ffi::c_int {
     let mut current_block: u64;
     let mut s: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
-    if in_completion as u64 == 0 || action == 15 as std::ffi::c_int {
+    if in_completion as u64 == 0 || action == EC_EXPAND {
         /*
          * Expand the word under the cursor and
          * use the first word in the expansion
@@ -1385,7 +1385,7 @@ unsafe extern "C" fn cmd_complete(mut action: std::ffi::c_int) -> std::ffi::c_in
             free(tk_text as *mut std::ffi::c_void);
             tk_text = 0 as *mut std::ffi::c_char;
         }
-        if curr_cmdflags & (1 as std::ffi::c_int) << 1 as std::ffi::c_int != 0 {
+        if curr_cmdflags & CF_OPTION != 0 {
             init_opt_compl();
         } else {
             init_file_compl();
@@ -1394,7 +1394,7 @@ unsafe extern "C" fn cmd_complete(mut action: std::ffi::c_int) -> std::ffi::c_in
             bell();
             return 0 as std::ffi::c_int;
         }
-        if action == 15 as std::ffi::c_int {
+        if action == EC_EXPAND {
             /*
              * Use the whole list.
              */

@@ -154,6 +154,39 @@ pub const PR_LONG: usize = 2; /* Prompt with longer message */
 
 pub const QUIT_SAVED_STATUS: i32 = -1;
 
+/* Paste action codes (from cmd.h) */
+pub const A_START_PASTE: i32 = 75;
+pub const A_END_PASTE: i32 = 76;
+
+/* Line-editing action codes (from cmd.h) */
+pub const EC_BACKSPACE: i32 = 1;
+pub const EC_LINEKILL: i32 = 2;
+pub const EC_RIGHT: i32 = 3;
+pub const EC_LEFT: i32 = 4;
+pub const EC_W_LEFT: i32 = 5;
+pub const EC_W_RIGHT: i32 = 6;
+pub const EC_INSERT: i32 = 7;
+pub const EC_DELETE: i32 = 8;
+pub const EC_HOME: i32 = 9;
+pub const EC_END: i32 = 10;
+pub const EC_W_BACKSPACE: i32 = 11;
+pub const EC_W_DELETE: i32 = 12;
+pub const EC_UP: i32 = 13;
+pub const EC_DOWN: i32 = 14;
+pub const EC_EXPAND: i32 = 15;
+pub const EC_F_COMPLETE: i32 = 17;
+pub const EC_B_COMPLETE: i32 = 18;
+pub const EC_LITERAL: i32 = 19;
+pub const EC_ABORT: i32 = 20;
+pub const EC_X11MOUSE: i32 = 21;
+pub const EC_X116MOUSE: i32 = 22;
+pub const EC_START_PASTE: i32 = A_START_PASTE;
+pub const EC_END_PASTE: i32 = A_END_PASTE;
+
+/* Command flags for set_mlist() (from less.h) */
+pub const CF_QUIT_ON_ERASE: i32 = 1 << 0; /* Abort cmd if entirely erased */
+pub const CF_OPTION: i32 = 1 << 1;        /* A_OPT_TOGGLE */
+
 /* These values must not conflict with any A_* or EC_* value. */
 pub const A_INVALID: i32 = 100;
 pub const A_NOACTION: i32 = 101;
