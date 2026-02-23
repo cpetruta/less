@@ -1236,7 +1236,7 @@ unsafe extern "C" fn cmd_char2(c: char, stay_in_completion: bool) -> i32 {
             CC_PASS | _ => {}
         }
     }
-    return cmd_ichar(cmd_mbc_buf.as_mut_ptr(), len);
+    return cmd_ichar(cmd_mbc_buf.as_mut_ptr(), len) as i32;
 }
 #[no_mangle]
 pub unsafe extern "C" fn cmd_char(c: char) -> i32 {
@@ -1247,28 +1247,20 @@ pub unsafe extern "C" fn cmd_char(c: char) -> i32 {
  * Copy an ASCII string to the command buffer.
  */
 #[no_mangle]
-pub unsafe extern "C" fn cmd_setstring(
-    mut s: *const std::ffi::c_char,
-    mut uc: lbool,
-) -> std::ffi::c_int {
-    while *s as std::ffi::c_int != '\0' as i32 {
-        let mut action: std::ffi::c_int = 0;
-        let fresh5 = s;
-        s = s.offset(1);
-        let mut c: std::ffi::c_char = *fresh5;
-        if uc as std::ffi::c_uint != 0
-            && (c as std::ffi::c_int >= 'a' as i32 && c as std::ffi::c_int <= 'z' as i32)
-        {
-            c = (c as std::ffi::c_int - 'a' as i32 + 'A' as i32) as std::ffi::c_char;
-        }
-        action = cmd_char2(c, true);
-        if action != 0 as std::ffi::c_int {
-            return action;
+pub unsafe extern "C" fn cmd_setstring(s: &str, uc: bool) -> i32 {
+    for c in s.chars() {
+        if uc && c.is_ascii_lowercase() {
+            let ch = c.to_ascii_uppercase();
+            let action = cmd_char2(ch, true);
+            if action != CC_OK {
+                return action;
+            }
         }
     }
     cmd_repaint_curr();
-    return 0 as std::ffi::c_int;
+    return CC_OK;
 }
+
 #[no_mangle]
 pub unsafe extern "C" fn cmd_int(mut frac: *mut std::ffi::c_long) -> LINENUM {
     let mut p: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
