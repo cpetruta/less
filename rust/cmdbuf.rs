@@ -607,7 +607,7 @@ unsafe extern "C" fn cmd_right() -> std::ffi::c_int {
     let mut width: std::ffi::c_int = 0;
     if *cp as std::ffi::c_int == '\0' as i32 {
         /* Already at the end of the line. */
-        return 0 as std::ffi::c_int;
+        return CC_OK;
     }
     ncp = cp;
     pr = cmd_step_right(&mut ncp, &mut width, 0 as *mut std::ffi::c_int);
@@ -629,7 +629,7 @@ unsafe extern "C" fn cmd_right() -> std::ffi::c_int {
         putstr(pr);
         cp = ncp;
     }
-    return 0 as std::ffi::c_int;
+    return CC_OK;
 }
 /*
  * Move cursor left one character.
@@ -640,7 +640,7 @@ unsafe extern "C" fn cmd_left() -> std::ffi::c_int {
     let mut bswidth: std::ffi::c_int = 0 as std::ffi::c_int;
     if cp <= cmdbuf.as_mut_ptr() {
         /* Already at the beginning of the line */
-        return 0 as std::ffi::c_int;
+        return CC_OK;
     }
     ncp = cp;
     while ncp > cmdbuf.as_mut_ptr() {
@@ -662,7 +662,7 @@ unsafe extern "C" fn cmd_left() -> std::ffi::c_int {
         }
         putbs();
     }
-    return 0 as std::ffi::c_int;
+    return CC_OK;
 }
 
 /*
@@ -722,7 +722,7 @@ unsafe extern "C" fn cmd_erase() -> std::ffi::c_int {
          * Backspace past beginning of the buffer:
          * this usually means abort the command.
          */
-        return 1 as std::ffi::c_int;
+        return CC_QUIT;
     }
     /*
      * Move cursor left (to the char being erased).
@@ -754,9 +754,9 @@ unsafe extern "C" fn cmd_erase() -> std::ffi::c_int {
         && cp == cmdbuf.as_mut_ptr()
         && *cp as std::ffi::c_int == '\0' as i32
     {
-        return 1 as std::ffi::c_int;
+        return CC_QUIT;
     }
-    return 0 as std::ffi::c_int;
+    return CC_OK;
 }
 /*
  * Delete the char under the cursor.
@@ -764,14 +764,14 @@ unsafe extern "C" fn cmd_erase() -> std::ffi::c_int {
 unsafe extern "C" fn cmd_delete() -> std::ffi::c_int {
     if *cp as std::ffi::c_int == '\0' as i32 {
         /* At end of string; there is no char under the cursor. */
-        return 0 as std::ffi::c_int;
+        return CC_OK;
     }
     /*
      * Move right, then use cmd_erase.
      */
     cmd_right();
     cmd_erase();
-    return 0 as std::ffi::c_int;
+    return CC_OK;
 }
 /*
  * Delete the "word" to the left of the cursor.
@@ -800,7 +800,7 @@ unsafe extern "C" fn cmd_werase() -> std::ffi::c_int {
             cmd_erase();
         }
     }
-    return 0 as std::ffi::c_int;
+    return CC_OK;
 }
 /*
  * Delete the "word" under the cursor.
@@ -823,7 +823,7 @@ unsafe extern "C" fn cmd_wdelete() -> std::ffi::c_int {
             cmd_delete();
         }
     }
-    return 0 as std::ffi::c_int;
+    return CC_OK;
 }
 /*
  * Delete all chars in the command buffer.
@@ -831,7 +831,7 @@ unsafe extern "C" fn cmd_wdelete() -> std::ffi::c_int {
 unsafe extern "C" fn cmd_kill() -> std::ffi::c_int {
     if cmdbuf[0 as std::ffi::c_int as usize] as std::ffi::c_int == '\0' as i32 {
         /* Buffer is already empty; abort the current command. */
-        return 1 as std::ffi::c_int;
+        return CC_QUIT;
     }
     cmd_offset = 0 as std::ffi::c_int;
     cmd_home();
@@ -843,9 +843,9 @@ unsafe extern "C" fn cmd_kill() -> std::ffi::c_int {
      * to abort the current command, if CF_QUIT_ON_ERASE is set.
      */
     if curr_cmdflags & CF_QUIT_ON_ERASE != 0 {
-        return 1 as std::ffi::c_int;
+        return CC_QUIT;
     }
-    return 0 as std::ffi::c_int;
+    return CC_OK;
 }
 /*
  * Select an mlist structure to be the current command history.
@@ -875,7 +875,7 @@ unsafe extern "C" fn cmd_updown(mut action: std::ffi::c_int) -> std::ffi::c_int 
          * The current command has no history list.
          */
         bell();
-        return 0 as std::ffi::c_int;
+        return CC_OK;
     }
     if have_updown_match as u64 == 0 {
         updown_match = cp.offset_from(cmdbuf.as_mut_ptr()) as std::ffi::c_long as size_t;
@@ -886,7 +886,7 @@ unsafe extern "C" fn cmd_updown(mut action: std::ffi::c_int) -> std::ffi::c_int 
      */
     ml = (*curr_mlist).curr_mp;
     loop {
-        ml = if action == 13 as std::ffi::c_int {
+        ml = if action == EC_UP {
             (*ml).prev
         } else {
             (*ml).next
@@ -915,14 +915,14 @@ unsafe extern "C" fn cmd_updown(mut action: std::ffi::c_int) -> std::ffi::c_int 
             while *cp as std::ffi::c_int != '\0' as i32 {
                 cmd_right();
             }
-            return 0 as std::ffi::c_int;
+            return CC_OK;
         }
     }
     /*
      * We didn't find a history entry that matches.
      */
     bell();
-    return 0 as std::ffi::c_int;
+    return CC_OK;
 }
 /*
  * Yet another lesson in the evils of global variables.
@@ -1202,11 +1202,11 @@ unsafe extern "C" fn cmd_istr(mut str: *const std::ffi::c_char) -> std::ffi::c_i
         let mut os: *const std::ffi::c_char = s;
         step_charc(&mut s, 1 as std::ffi::c_int, endline);
         action = cmd_ichar(os, s.offset_from(os) as std::ffi::c_long as size_t);
-        if action != 0 as std::ffi::c_int {
+        if action != CC_OK {
             return action;
         }
     }
-    return 0 as std::ffi::c_int;
+    return CC_OK;
 }
 /*
  * Set tk_original to word.
@@ -1392,7 +1392,7 @@ unsafe extern "C" fn cmd_complete(mut action: std::ffi::c_int) -> std::ffi::c_in
         }
         if tk_text.is_null() {
             bell();
-            return 0 as std::ffi::c_int;
+            return CC_OK;
         }
         if action == EC_EXPAND {
             /*
@@ -1426,12 +1426,12 @@ unsafe extern "C" fn cmd_complete(mut action: std::ffi::c_int) -> std::ffi::c_in
          * Insert the original (uncompleted) filename.
          */
         in_completion = LFALSE;
-        if cmd_istr(tk_original) != 0 as std::ffi::c_int {
+        if cmd_istr(tk_original) != CC_OK {
             current_block = 16725810106060436304;
         } else {
             current_block = 4488286894823169796;
         }
-    } else if cmd_istr(tk_trial) != 0 as std::ffi::c_int {
+    } else if cmd_istr(tk_trial) != CC_OK {
         current_block = 16725810106060436304;
     } else if is_dir(tk_trial) as u64 != 0 {
         /*
@@ -1451,7 +1451,7 @@ unsafe extern "C" fn cmd_complete(mut action: std::ffi::c_int) -> std::ffi::c_in
             ss_cstring = CString::new(ss.unwrap()).unwrap();
             s = ss_cstring.as_ptr();
         }
-        if cmd_istr(s) != 0 as std::ffi::c_int {
+        if cmd_istr(s) != CC_OK {
             current_block = 16725810106060436304;
         } else {
             current_block = 4488286894823169796;
@@ -1460,11 +1460,11 @@ unsafe extern "C" fn cmd_complete(mut action: std::ffi::c_int) -> std::ffi::c_in
         current_block = 4488286894823169796;
     }
     match current_block {
-        4488286894823169796 => return 0 as std::ffi::c_int,
+        4488286894823169796 => return CC_OK,
         _ => {
             in_completion = LFALSE;
             bell();
-            return 0 as std::ffi::c_int;
+            return CC_OK;
         }
     };
 }
@@ -1490,13 +1490,13 @@ unsafe extern "C" fn cmd_uchar(mut c: std::ffi::c_char, mut plen: *mut size_t) -
             cmd_mbc_buf_index = cmd_mbc_buf_index + 1;
             cmd_mbc_buf[fresh4 as usize] = c;
             if cmd_mbc_buf_index < cmd_mbc_buf_len {
-                return 0 as std::ffi::c_int;
+                return CC_OK;
             }
             if is_utf8_well_formed(cmd_mbc_buf.as_mut_ptr(), cmd_mbc_buf_index) as u64 == 0 {
                 /* complete, but not well formed (non-shortest form), sequence */
                 cmd_mbc_buf_len = 0 as std::ffi::c_int;
                 bell();
-                return 2 as std::ffi::c_int;
+                return CC_ERROR;
             }
             current_block_24 = 26972500619410423;
         } else {
@@ -1516,10 +1516,10 @@ unsafe extern "C" fn cmd_uchar(mut c: std::ffi::c_char, mut plen: *mut size_t) -
                     && !(c as std::ffi::c_int & 0xfe as std::ffi::c_int == 0xfe as std::ffi::c_int)
                 {
                     cmd_mbc_buf_len = utf_len(c);
-                    return 0 as std::ffi::c_int;
+                    return CC_OK;
                 } else {
                     bell();
-                    return 2 as std::ffi::c_int;
+                    return CC_ERROR;
                 }
             }
             _ => {}
@@ -1527,7 +1527,7 @@ unsafe extern "C" fn cmd_uchar(mut c: std::ffi::c_char, mut plen: *mut size_t) -
         *plen = cmd_mbc_buf_len as size_t;
         cmd_mbc_buf_len = 0 as std::ffi::c_int;
     }
-    return 3 as std::ffi::c_int;
+    return CC_PASS;
 }
 
 /*
