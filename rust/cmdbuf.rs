@@ -16,103 +16,103 @@ use crate::decode::lgetenv;
 use crate::defs::*;
 use crate::opttbl::get_options;
 use ::c2rust_bitfields;
-use std::ffi::CString;
+use std::ffi::{c_char, c_void, CString};
 extern "C" {
     pub type _IO_wide_data;
     pub type _IO_codecvt;
     pub type _IO_marker;
-    fn rename(__old: *const std::ffi::c_char, __new: *const std::ffi::c_char) -> std::ffi::c_int;
-    fn fclose(__stream: *mut FILE) -> std::ffi::c_int;
-    fn fopen(_: *const std::ffi::c_char, _: *const std::ffi::c_char) -> *mut FILE;
-    fn fprintf(_: *mut FILE, _: *const std::ffi::c_char, _: ...) -> std::ffi::c_int;
+    fn rename(__old: *const c_char, __new: *const c_char) -> i32;
+    fn fclose(__stream: *mut FILE) -> i32;
+    fn fopen(_: *const c_char, _: *const c_char) -> *mut FILE;
+    fn fprintf(_: *mut FILE, _: *const c_char, _: ...) -> i32;
     fn fgets(
-        __s: *mut std::ffi::c_char,
-        __n: std::ffi::c_int,
+        __s: *mut c_char,
+        __n: i32,
         __stream: *mut FILE,
-    ) -> *mut std::ffi::c_char;
-    fn fileno(__stream: *mut FILE) -> std::ffi::c_int;
+    ) -> *mut c_char;
+    fn fileno(__stream: *mut FILE) -> i32;
     fn strtol(
-        _: *const std::ffi::c_char,
-        _: *mut *mut std::ffi::c_char,
-        _: std::ffi::c_int,
-    ) -> std::ffi::c_long;
-    fn free(_: *mut std::ffi::c_void);
-    fn strcpy(_: *mut std::ffi::c_char, _: *const std::ffi::c_char) -> *mut std::ffi::c_char;
+        _: *const c_char,
+        _: *mut *mut c_char,
+        _: i32,
+    ) -> i64;
+    fn free(_: *mut c_void);
+    fn strcpy(_: *mut c_char, _: *const c_char) -> *mut c_char;
     fn strncpy(
-        _: *mut std::ffi::c_char,
-        _: *const std::ffi::c_char,
-        _: std::ffi::c_ulong,
-    ) -> *mut std::ffi::c_char;
-    fn strcmp(_: *const std::ffi::c_char, _: *const std::ffi::c_char) -> std::ffi::c_int;
+        _: *mut c_char,
+        _: *const c_char,
+        _: u64,
+    ) -> *mut c_char;
+    fn strcmp(_: *const c_char, _: *const c_char) -> i32;
     fn strncmp(
-        _: *const std::ffi::c_char,
-        _: *const std::ffi::c_char,
-        _: std::ffi::c_ulong,
-    ) -> std::ffi::c_int;
-    fn strlen(_: *const std::ffi::c_char) -> std::ffi::c_ulong;
-    fn save(s: *const std::ffi::c_char) -> *mut std::ffi::c_char;
-    fn ecalloc(count: size_t, size: size_t) -> *mut std::ffi::c_void;
-    fn secure_allow(features: std::ffi::c_int) -> std::ffi::c_int;
+        _: *const c_char,
+        _: *const c_char,
+        _: u64,
+    ) -> i32;
+    fn strlen(_: *const c_char) -> u64;
+    fn save(s: *const c_char) -> *mut c_char;
+    fn ecalloc(count: size_t, size: size_t) -> *mut c_void;
+    fn secure_allow(features: i32) -> i32;
     fn bell();
     fn clear_eol();
     fn putbs();
-    fn prchar(c: LWCHAR) -> *const std::ffi::c_char;
-    fn prutfchar(ch: LWCHAR) -> *const std::ffi::c_char;
-    fn utf_len(ch: std::ffi::c_char) -> std::ffi::c_int;
-    fn is_utf8_well_formed(ss: *const std::ffi::c_char, slen: std::ffi::c_int) -> lbool;
+    fn prchar(c: LWCHAR) -> *const c_char;
+    fn prutfchar(ch: LWCHAR) -> *const c_char;
+    fn utf_len(ch: c_char) -> i32;
+    fn is_utf8_well_formed(ss: *const c_char, slen: i32) -> lbool;
     fn step_charc(
-        pp: *mut *const std::ffi::c_char,
-        dir: std::ffi::c_int,
-        limit: *const std::ffi::c_char,
+        pp: *mut *const c_char,
+        dir: i32,
+        limit: *const c_char,
     ) -> LWCHAR;
     fn step_char(
-        pp: *mut *mut std::ffi::c_char,
-        dir: std::ffi::c_int,
-        limit: *const std::ffi::c_char,
+        pp: *mut *mut c_char,
+        dir: i32,
+        limit: *const c_char,
     ) -> LWCHAR;
     fn is_composing_char(ch: LWCHAR) -> lbool;
     fn is_ubin_char(ch: LWCHAR) -> lbool;
     fn is_wide_char(ch: LWCHAR) -> lbool;
     fn is_combining_char(ch1: LWCHAR, ch2: LWCHAR) -> lbool;
-    fn in_mca() -> std::ffi::c_int;
+    fn in_mca() -> i32;
     fn stop_ignoring_input();
-    fn is_ignoring_input(action: std::ffi::c_int) -> lbool;
-    fn isnullenv(s: *const std::ffi::c_char) -> lbool;
-    fn editchar(c: std::ffi::c_char, flags: std::ffi::c_int) -> std::ffi::c_int;
-    fn init_textlist(tlist: *mut textlist, str: *mut std::ffi::c_char);
+    fn is_ignoring_input(action: i32) -> lbool;
+    fn isnullenv(s: *const c_char) -> lbool;
+    fn editchar(c: c_char, flags: i32) -> i32;
+    fn init_textlist(tlist: *mut textlist, str: *mut c_char);
     fn forw_textlist(
         tlist: *mut textlist,
-        prev: *const std::ffi::c_char,
-    ) -> *const std::ffi::c_char;
+        prev: *const c_char,
+    ) -> *const c_char;
     fn back_textlist(
         tlist: *mut textlist,
-        prev: *const std::ffi::c_char,
-    ) -> *const std::ffi::c_char;
-    fn get_meta_escape() -> *const std::ffi::c_char;
-    fn shell_quote(s: *const std::ffi::c_char) -> *mut std::ffi::c_char;
+        prev: *const c_char,
+    ) -> *const c_char;
+    fn get_meta_escape() -> *const c_char;
+    fn shell_quote(s: *const c_char) -> *mut c_char;
     fn dirfile(
-        dirname: *const std::ffi::c_char,
-        filename: *const std::ffi::c_char,
-        must_exist: std::ffi::c_int,
-    ) -> *mut std::ffi::c_char;
-    fn fcomplete(s: *const std::ffi::c_char) -> *mut std::ffi::c_char;
-    fn is_dir(filename: *const std::ffi::c_char) -> lbool;
-    fn save_marks(fout: *mut FILE, hdr: *const std::ffi::c_char);
-    fn restore_mark(line: *const std::ffi::c_char);
+        dirname: *const c_char,
+        filename: *const c_char,
+        must_exist: i32,
+    ) -> *mut c_char;
+    fn fcomplete(s: *const c_char) -> *mut c_char;
+    fn is_dir(filename: *const c_char) -> lbool;
+    fn save_marks(fout: *mut FILE, hdr: *const c_char);
+    fn restore_mark(line: *const c_char);
     fn getfraction(
-        sp: *mut *const std::ffi::c_char,
-        printopt: *const std::ffi::c_char,
+        sp: *mut *const c_char,
+        printopt: *const c_char,
         errp: *mut lbool,
-    ) -> std::ffi::c_long;
-    fn findopts_name(pfx: *const std::ffi::c_char) -> *mut std::ffi::c_char;
-    fn putchr(ch: std::ffi::c_int) -> std::ffi::c_int;
-    fn putstr(s: *const std::ffi::c_char);
-    fn error(fmt: *const std::ffi::c_char, parg: *mut PARG);
-    fn fstat(__fd: std::ffi::c_int, __buf: *mut stat) -> std::ffi::c_int;
-    fn fchmod(__fd: std::ffi::c_int, __mode: __mode_t) -> std::ffi::c_int;
-    static mut sc_width: std::ffi::c_int;
-    static mut utf_mode: std::ffi::c_int;
-    static mut marks_modified: std::ffi::c_int;
+    ) -> i64;
+    fn findopts_name(pfx: *const c_char) -> *mut c_char;
+    fn putchr(ch: i32) -> i32;
+    fn putstr(s: *const c_char);
+    fn error(fmt: *const c_char, parg: *mut PARG);
+    fn fstat(__fd: i32, __buf: *mut stat) -> i32;
+    fn fchmod(__fd: i32, __mode: __mode_t) -> i32;
+    static mut sc_width: i32;
+    static mut utf_mode: i32;
+    static mut marks_modified: i32;
 }
 #[derive(Copy, Clone)]
 #[repr(C)]
@@ -123,37 +123,37 @@ pub struct timespec {
 #[derive(Copy, Clone, BitfieldStruct)]
 #[repr(C)]
 pub struct _IO_FILE {
-    pub _flags: std::ffi::c_int,
-    pub _IO_read_ptr: *mut std::ffi::c_char,
-    pub _IO_read_end: *mut std::ffi::c_char,
-    pub _IO_read_base: *mut std::ffi::c_char,
-    pub _IO_write_base: *mut std::ffi::c_char,
-    pub _IO_write_ptr: *mut std::ffi::c_char,
-    pub _IO_write_end: *mut std::ffi::c_char,
-    pub _IO_buf_base: *mut std::ffi::c_char,
-    pub _IO_buf_end: *mut std::ffi::c_char,
-    pub _IO_save_base: *mut std::ffi::c_char,
-    pub _IO_backup_base: *mut std::ffi::c_char,
-    pub _IO_save_end: *mut std::ffi::c_char,
+    pub _flags: i32,
+    pub _IO_read_ptr: *mut c_char,
+    pub _IO_read_end: *mut c_char,
+    pub _IO_read_base: *mut c_char,
+    pub _IO_write_base: *mut c_char,
+    pub _IO_write_ptr: *mut c_char,
+    pub _IO_write_end: *mut c_char,
+    pub _IO_buf_base: *mut c_char,
+    pub _IO_buf_end: *mut c_char,
+    pub _IO_save_base: *mut c_char,
+    pub _IO_backup_base: *mut c_char,
+    pub _IO_save_end: *mut c_char,
     pub _markers: *mut _IO_marker,
     pub _chain: *mut _IO_FILE,
-    pub _fileno: std::ffi::c_int,
-    #[bitfield(name = "_flags2", ty = "std::ffi::c_int", bits = "0..=23")]
+    pub _fileno: i32,
+    #[bitfield(name = "_flags2", ty = "i32", bits = "0..=23")]
     pub _flags2: [u8; 3],
-    pub _short_backupbuf: [std::ffi::c_char; 1],
+    pub _short_backupbuf: [c_char; 1],
     pub _old_offset: __off_t,
-    pub _cur_column: std::ffi::c_ushort,
-    pub _vtable_offset: std::ffi::c_schar,
-    pub _shortbuf: [std::ffi::c_char; 1],
-    pub _lock: *mut std::ffi::c_void,
+    pub _cur_column: u16,
+    pub _vtable_offset: i8,
+    pub _shortbuf: [c_char; 1],
+    pub _lock: *mut c_void,
     pub _offset: __off64_t,
     pub _codecvt: *mut _IO_codecvt,
     pub _wide_data: *mut _IO_wide_data,
     pub _freeres_list: *mut _IO_FILE,
-    pub _freeres_buf: *mut std::ffi::c_void,
+    pub _freeres_buf: *mut c_void,
     pub _prevchain: *mut *mut _IO_FILE,
-    pub _mode: std::ffi::c_int,
-    pub _unused2: [std::ffi::c_char; 20],
+    pub _mode: i32,
+    pub _unused2: [c_char; 20],
 }
 pub type _IO_lock_t = ();
 pub type FILE = _IO_FILE;
@@ -166,7 +166,7 @@ pub struct stat {
     pub st_mode: __mode_t,
     pub st_uid: __uid_t,
     pub st_gid: __gid_t,
-    pub __pad0: std::ffi::c_int,
+    pub __pad0: i32,
     pub st_rdev: __dev_t,
     pub st_size: __off_t,
     pub st_blksize: __blksize_t,
@@ -179,17 +179,17 @@ pub struct stat {
 #[derive(Copy, Clone)]
 #[repr(C)]
 pub union parg {
-    pub p_string: *const std::ffi::c_char,
-    pub p_int: std::ffi::c_int,
+    pub p_string: *const c_char,
+    pub p_int: i32,
     pub p_linenum: LINENUM,
-    pub p_char: std::ffi::c_char,
+    pub p_char: c_char,
 }
 pub type PARG = parg;
 #[derive(Copy, Clone)]
 #[repr(C)]
 pub struct textlist {
-    pub string: *mut std::ffi::c_char,
-    pub endstring: *mut std::ffi::c_char,
+    pub string: *mut c_char,
+    pub endstring: *mut c_char,
 }
 /*
  * A mlist structure represents a command history.
@@ -200,7 +200,7 @@ pub struct mlist {
     pub next: *mut mlist,
     pub prev: *mut mlist,
     pub curr_mp: *mut mlist,
-    pub string: *mut std::ffi::c_char,
+    pub string: *mut c_char,
     pub modified: lbool,
 }
 #[derive(Copy, Clone)]
@@ -210,20 +210,20 @@ pub struct save_ctx {
     pub fout: *mut FILE,
 }
 #[inline]
-unsafe extern "C" fn atoi(mut __nptr: *const std::ffi::c_char) -> std::ffi::c_int {
+unsafe extern "C" fn atoi(mut __nptr: *const c_char) -> i32 {
     return strtol(
         __nptr,
-        0 as *mut std::ffi::c_void as *mut *mut std::ffi::c_char,
-        10 as std::ffi::c_int,
-    ) as std::ffi::c_int;
+        0 as *mut c_void as *mut *mut c_char,
+        10 as i32,
+    ) as i32;
 }
 #[no_mangle]
 pub static mut pasting: lbool = LFALSE;
-static mut cmdbuf: [std::ffi::c_char; 2048] = [0; 2048]; /* Buffer for holding a multi-char command */
-static mut cmd_col: std::ffi::c_int = 0;                  /* Current column of the cursor */
-static mut prompt_col: std::ffi::c_int = 0;                /* Column of cursor just after prompt */
-static mut cp: *mut std::ffi::c_char = 0 as *const std::ffi::c_char as *mut std::ffi::c_char; /* Pointer into cmdbuf */
-static mut cmd_offset: std::ffi::c_int = 0;                /* Index into cmdbuf of first displayed char */
+static mut cmdbuf: [c_char; 2048] = [0; 2048]; /* Buffer for holding a multi-char command */
+static mut cmd_col: i32 = 0;                  /* Current column of the cursor */
+static mut prompt_col: i32 = 0;                /* Column of cursor just after prompt */
+static mut cp: *mut c_char = 0 as *const c_char as *mut c_char; /* Pointer into cmdbuf */
+static mut cmd_offset: i32 = 0;                /* Index into cmdbuf of first displayed char */
 static mut literal: lbool = LFALSE;                        /* Next input char should not be interpreted */
 static mut updown_match: size_t = 0;                       /* Prefix length in up/down movement */
 static mut have_updown_match: lbool = LFALSE;
@@ -231,19 +231,19 @@ static mut have_updown_match: lbool = LFALSE;
  * These variables are statics used by cmd_complete.
  */
 static mut in_completion: lbool = LFALSE;
-static mut tk_text: *mut std::ffi::c_char = 0 as *const std::ffi::c_char as *mut std::ffi::c_char;
-static mut tk_original: *mut std::ffi::c_char =
-    0 as *const std::ffi::c_char as *mut std::ffi::c_char;
-static mut tk_ipoint: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
-static mut tk_trial: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
+static mut tk_text: *mut c_char = 0 as *const c_char as *mut c_char;
+static mut tk_original: *mut c_char =
+    0 as *const c_char as *mut c_char;
+static mut tk_ipoint: *const c_char = 0 as *const c_char;
+static mut tk_trial: *const c_char = 0 as *const c_char;
 static mut tk_tlist: textlist = textlist {
-    string: 0 as *const std::ffi::c_char as *mut std::ffi::c_char,
-    endstring: 0 as *const std::ffi::c_char as *mut std::ffi::c_char,
+    string: 0 as *const c_char as *mut c_char,
+    endstring: 0 as *const c_char as *mut c_char,
 };
 #[no_mangle]
-pub static mut openquote: std::ffi::c_char = '"' as i32 as std::ffi::c_char;
+pub static mut openquote: c_char = '"' as i32 as c_char;
 #[no_mangle]
-pub static mut closequote: std::ffi::c_char = '"' as i32 as std::ffi::c_char;
+pub static mut closequote: c_char = '"' as i32 as c_char;
 /*
  * These are the various command histories that exist.
  */
@@ -254,15 +254,15 @@ pub static mut mlist_search: mlist = unsafe {
             next: &mlist_search as *const mlist as *mut mlist,
             prev: &mlist_search as *const mlist as *mut mlist,
             curr_mp: &mlist_search as *const mlist as *mut mlist,
-            string: 0 as *const std::ffi::c_char as *mut std::ffi::c_char,
+            string: 0 as *const c_char as *mut c_char,
             modified: LFALSE,
         };
         init
     }
 };
 #[no_mangle]
-pub static mut ml_search: *mut std::ffi::c_void =
-    unsafe { &mlist_search as *const mlist as *mut mlist as *mut std::ffi::c_void };
+pub static mut ml_search: *mut c_void =
+    unsafe { &mlist_search as *const mlist as *mut mlist as *mut c_void };
 #[no_mangle]
 pub static mut mlist_examine: mlist = unsafe {
     {
@@ -270,15 +270,15 @@ pub static mut mlist_examine: mlist = unsafe {
             next: &mlist_examine as *const mlist as *mut mlist,
             prev: &mlist_examine as *const mlist as *mut mlist,
             curr_mp: &mlist_examine as *const mlist as *mut mlist,
-            string: 0 as *const std::ffi::c_char as *mut std::ffi::c_char,
+            string: 0 as *const c_char as *mut c_char,
             modified: LFALSE,
         };
         init
     }
 };
 #[no_mangle]
-pub static mut ml_examine: *mut std::ffi::c_void =
-    unsafe { &mlist_examine as *const mlist as *mut mlist as *mut std::ffi::c_void };
+pub static mut ml_examine: *mut c_void =
+    unsafe { &mlist_examine as *const mlist as *mut mlist as *mut c_void };
 #[no_mangle]
 pub static mut mlist_shell: mlist = unsafe {
     {
@@ -286,23 +286,23 @@ pub static mut mlist_shell: mlist = unsafe {
             next: &mlist_shell as *const mlist as *mut mlist,
             prev: &mlist_shell as *const mlist as *mut mlist,
             curr_mp: &mlist_shell as *const mlist as *mut mlist,
-            string: 0 as *const std::ffi::c_char as *mut std::ffi::c_char,
+            string: 0 as *const c_char as *mut c_char,
             modified: LFALSE,
         };
         init
     }
 };
 #[no_mangle]
-pub static mut ml_shell: *mut std::ffi::c_void =
-    unsafe { &mlist_shell as *const mlist as *mut mlist as *mut std::ffi::c_void };
+pub static mut ml_shell: *mut c_void =
+    unsafe { &mlist_shell as *const mlist as *mut mlist as *mut c_void };
 /*
  * History for the current command.
  */
 static mut curr_mlist: *mut mlist = 0 as *const mlist as *mut mlist;
-static mut curr_cmdflags: std::ffi::c_int = 0;
-static mut cmd_mbc_buf: [std::ffi::c_char; 6] = [0; 6];
-static mut cmd_mbc_buf_len: std::ffi::c_int = 0;
-static mut cmd_mbc_buf_index: std::ffi::c_int = 0;
+static mut curr_cmdflags: i32 = 0;
+static mut cmd_mbc_buf: [c_char; 6] = [0; 6];
+static mut cmd_mbc_buf_len: i32 = 0;
+static mut cmd_mbc_buf_index: i32 = 0;
 
 /*
  * Reset command buffer (to empty).
@@ -310,11 +310,11 @@ static mut cmd_mbc_buf_index: std::ffi::c_int = 0;
 #[no_mangle]
 pub unsafe extern "C" fn cmd_reset() {
     cp = cmdbuf.as_mut_ptr();
-    *cp = '\0' as i32 as std::ffi::c_char;
-    cmd_col = 0 as std::ffi::c_int;
-    cmd_offset = 0 as std::ffi::c_int;
+    *cp = '\0' as i32 as c_char;
+    cmd_col = 0 as i32;
+    cmd_offset = 0 as i32;
     literal = LFALSE;
-    cmd_mbc_buf_len = 0 as std::ffi::c_int;
+    cmd_mbc_buf_len = 0 as i32;
     have_updown_match = LFALSE;
 }
 /*
@@ -322,39 +322,39 @@ pub unsafe extern "C" fn cmd_reset() {
  */
 #[no_mangle]
 pub unsafe extern "C" fn clear_cmd() {
-    prompt_col = 0 as std::ffi::c_int;
+    prompt_col = 0 as i32;
     cmd_col = prompt_col;
-    cmd_mbc_buf_len = 0 as std::ffi::c_int;
+    cmd_mbc_buf_len = 0 as i32;
     have_updown_match = LFALSE;
 }
 /*
  * Display a string, usually as a prompt for input into the command buffer.
  */
 #[no_mangle]
-pub unsafe extern "C" fn cmd_putstr(mut s: *const std::ffi::c_char) {
-    let mut prev_ch: LWCHAR = 0 as std::ffi::c_int as LWCHAR;
+pub unsafe extern "C" fn cmd_putstr(mut s: *const c_char) {
+    let mut prev_ch: LWCHAR = 0 as i32 as LWCHAR;
     let mut ch: LWCHAR = 0;
-    let mut endline: *const std::ffi::c_char = s.offset(strlen(s) as isize);
-    while *s as std::ffi::c_int != '\0' as i32 {
-        let mut os: *const std::ffi::c_char = s;
-        let mut width: std::ffi::c_int = 0;
-        ch = step_charc(&mut s, 1 as std::ffi::c_int, endline);
+    let mut endline: *const c_char = s.offset(strlen(s) as isize);
+    while *s as i32 != '\0' as i32 {
+        let mut os: *const c_char = s;
+        let mut width: i32 = 0;
+        ch = step_charc(&mut s, 1 as i32, endline);
         while os < s {
             let fresh0 = os;
             os = os.offset(1);
-            putchr(*fresh0 as std::ffi::c_int);
+            putchr(*fresh0 as i32);
         }
         if utf_mode == 0 {
-            width = 1 as std::ffi::c_int;
-        } else if is_composing_char(ch) as std::ffi::c_uint != 0
-            || is_combining_char(prev_ch, ch) as std::ffi::c_uint != 0
+            width = 1 as i32;
+        } else if is_composing_char(ch) as u32 != 0
+            || is_combining_char(prev_ch, ch) as u32 != 0
         {
-            width = 0 as std::ffi::c_int;
+            width = 0 as i32;
         } else {
-            width = if is_wide_char(ch) as std::ffi::c_uint != 0 {
-                2 as std::ffi::c_int
+            width = if is_wide_char(ch) as u32 != 0 {
+                2 as i32
             } else {
-                1 as std::ffi::c_int
+                1 as i32
             };
         }
         cmd_col += width;
@@ -366,12 +366,12 @@ pub unsafe extern "C" fn cmd_putstr(mut s: *const std::ffi::c_char) {
  * How many characters are in the command buffer?
  */
 #[no_mangle]
-pub unsafe extern "C" fn len_cmdbuf() -> std::ffi::c_int {
-    let mut s: *const std::ffi::c_char = cmdbuf.as_mut_ptr();
-    let mut endline: *const std::ffi::c_char = s.offset(strlen(s) as isize);
-    let mut len: std::ffi::c_int = 0 as std::ffi::c_int;
-    while *s as std::ffi::c_int != '\0' as i32 {
-        step_charc(&mut s, 1 as std::ffi::c_int, endline);
+pub unsafe extern "C" fn len_cmdbuf() -> i32 {
+    let mut s: *const c_char = cmdbuf.as_mut_ptr();
+    let mut endline: *const c_char = s.offset(strlen(s) as isize);
+    let mut len: i32 = 0 as i32;
+    while *s as i32 != '\0' as i32 {
+        step_charc(&mut s, 1 as i32, endline);
         len += 1;
     }
     return len;
@@ -383,7 +383,7 @@ pub unsafe extern "C" fn len_cmdbuf() -> std::ffi::c_int {
  */
 #[no_mangle]
 pub unsafe extern "C" fn cmdbuf_empty() -> lbool {
-    return (cp == cmdbuf.as_mut_ptr() && cmd_mbc_buf_len == 0 as std::ffi::c_int) as std::ffi::c_int
+    return (cp == cmdbuf.as_mut_ptr() && cmd_mbc_buf_len == 0 as i32) as i32
         as lbool;
 }
 /*
@@ -392,33 +392,33 @@ pub unsafe extern "C" fn cmdbuf_empty() -> lbool {
  *    since they're always the same. Maybe clean this up someday. }}
  */
 unsafe extern "C" fn cmd_step_common(
-    mut p: *mut std::ffi::c_char,
+    mut p: *mut c_char,
     mut ch: LWCHAR,
     mut len: size_t,
-    mut pwidth: *mut std::ffi::c_int,
-    mut bswidth: *mut std::ffi::c_int,
-) -> *const std::ffi::c_char {
-    let mut pr: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
-    let mut width: std::ffi::c_int = 0;
-    if len == 1 as std::ffi::c_int as size_t {
+    mut pwidth: *mut i32,
+    mut bswidth: *mut i32,
+) -> *const c_char {
+    let mut pr: *const c_char = 0 as *const c_char;
+    let mut width: i32 = 0;
+    if len == 1 as i32 as size_t {
         pr = prchar(ch);
-        width = strlen(pr) as std::ffi::c_int;
+        width = strlen(pr) as i32;
     } else {
         pr = prutfchar(ch);
         if is_composing_char(ch) as u64 != 0 {
-            width = 0 as std::ffi::c_int;
+            width = 0 as i32;
         } else if is_ubin_char(ch) as u64 != 0 {
-            width = strlen(pr) as std::ffi::c_int;
+            width = strlen(pr) as i32;
         } else {
             let mut prev_ch: LWCHAR =
-                step_char(&mut p, -(1 as std::ffi::c_int), cmdbuf.as_mut_ptr());
+                step_char(&mut p, -(1 as i32), cmdbuf.as_mut_ptr());
             if is_combining_char(prev_ch, ch) as u64 != 0 {
-                width = 0 as std::ffi::c_int;
+                width = 0 as i32;
             } else {
-                width = if is_wide_char(ch) as std::ffi::c_uint != 0 {
-                    2 as std::ffi::c_int
+                width = if is_wide_char(ch) as u32 != 0 {
+                    2 as i32
                 } else {
-                    1 as std::ffi::c_int
+                    1 as i32
                 };
             }
         }
@@ -435,16 +435,16 @@ unsafe extern "C" fn cmd_step_common(
  * Step a pointer one character right in the command buffer.
  */
 unsafe extern "C" fn cmd_step_right(
-    mut pp: *mut *mut std::ffi::c_char,
-    mut pwidth: *mut std::ffi::c_int,
-    mut bswidth: *mut std::ffi::c_int,
-) -> *const std::ffi::c_char {
-    let mut p: *mut std::ffi::c_char = *pp;
-    let mut ch: LWCHAR = step_char(pp, 1 as std::ffi::c_int, p.offset(strlen(p) as isize));
+    mut pp: *mut *mut c_char,
+    mut pwidth: *mut i32,
+    mut bswidth: *mut i32,
+) -> *const c_char {
+    let mut p: *mut c_char = *pp;
+    let mut ch: LWCHAR = step_char(pp, 1 as i32, p.offset(strlen(p) as isize));
     return cmd_step_common(
         p,
         ch,
-        (*pp).offset_from(p) as std::ffi::c_long as size_t,
+        (*pp).offset_from(p) as i64 as size_t,
         pwidth,
         bswidth,
     );
@@ -453,16 +453,16 @@ unsafe extern "C" fn cmd_step_right(
  * Step a pointer one character left in the command buffer.
  */
 unsafe extern "C" fn cmd_step_left(
-    mut pp: *mut *mut std::ffi::c_char,
-    mut pwidth: *mut std::ffi::c_int,
-    mut bswidth: *mut std::ffi::c_int,
-) -> *const std::ffi::c_char {
-    let mut p: *mut std::ffi::c_char = *pp;
-    let mut ch: LWCHAR = step_char(pp, -(1 as std::ffi::c_int), cmdbuf.as_mut_ptr());
+    mut pp: *mut *mut c_char,
+    mut pwidth: *mut i32,
+    mut bswidth: *mut i32,
+) -> *const c_char {
+    let mut p: *mut c_char = *pp;
+    let mut ch: LWCHAR = step_char(pp, -(1 as i32), cmdbuf.as_mut_ptr());
     return cmd_step_common(
         *pp,
         ch,
-        p.offset_from(*pp) as std::ffi::c_long as size_t,
+        p.offset_from(*pp) as i64 as size_t,
         pwidth,
         bswidth,
     );
@@ -473,27 +473,27 @@ unsafe extern "C" fn cmd_step_left(
  */
 unsafe extern "C" fn cmd_home() {
     while cmd_col > prompt_col {
-        let mut width: std::ffi::c_int = 0;
-        let mut bswidth: std::ffi::c_int = 0;
+        let mut width: i32 = 0;
+        let mut bswidth: i32 = 0;
         cmd_step_left(&mut cp, &mut width, &mut bswidth);
         loop {
             let fresh1 = bswidth;
             bswidth = bswidth - 1;
-            if !(fresh1 > 0 as std::ffi::c_int) {
+            if !(fresh1 > 0 as i32) {
                 break;
             }
             putbs();
         }
         cmd_col -= width;
     }
-    cp = &mut *cmdbuf.as_mut_ptr().offset(cmd_offset as isize) as *mut std::ffi::c_char;
+    cp = &mut *cmdbuf.as_mut_ptr().offset(cmd_offset as isize) as *mut c_char;
 }
 /*
  * Repaint the line from cp onwards.
  * Then position the cursor just after the char old_cp (a pointer into cmdbuf).
  */
 #[no_mangle]
-pub unsafe extern "C" fn cmd_repaint(mut old_cp: *const std::ffi::c_char) {
+pub unsafe extern "C" fn cmd_repaint(mut old_cp: *const c_char) {
     /*
      * Repaint the line from the current position.
      */
@@ -502,11 +502,11 @@ pub unsafe extern "C" fn cmd_repaint(mut old_cp: *const std::ffi::c_char) {
         cmd_home();
     }
     clear_eol();
-    while *cp as std::ffi::c_int != '\0' as i32 {
-        let mut np: *mut std::ffi::c_char = cp;
-        let mut width: std::ffi::c_int = 0;
-        let mut pr: *const std::ffi::c_char =
-            cmd_step_right(&mut np, &mut width, 0 as *mut std::ffi::c_int);
+    while *cp as i32 != '\0' as i32 {
+        let mut np: *mut c_char = cp;
+        let mut width: i32 = 0;
+        let mut pr: *const c_char =
+            cmd_step_right(&mut np, &mut width, 0 as *mut i32);
         if cmd_col + width >= sc_width {
             break;
         }
@@ -514,12 +514,12 @@ pub unsafe extern "C" fn cmd_repaint(mut old_cp: *const std::ffi::c_char) {
         putstr(pr);
         cmd_col += width;
     }
-    while *cp as std::ffi::c_int != '\0' as i32 {
-        let mut np_0: *mut std::ffi::c_char = cp;
-        let mut width_0: std::ffi::c_int = 0;
-        let mut pr_0: *const std::ffi::c_char =
-            cmd_step_right(&mut np_0, &mut width_0, 0 as *mut std::ffi::c_int);
-        if width_0 > 0 as std::ffi::c_int {
+    while *cp as i32 != '\0' as i32 {
+        let mut np_0: *mut c_char = cp;
+        let mut width_0: i32 = 0;
+        let mut pr_0: *const c_char =
+            cmd_step_right(&mut np_0, &mut width_0, 0 as *mut i32);
+        if width_0 > 0 as i32 {
             break;
         }
         cp = np_0;
@@ -528,7 +528,7 @@ pub unsafe extern "C" fn cmd_repaint(mut old_cp: *const std::ffi::c_char) {
     /*
      * Back up the cursor to the correct position.
      */
-    while cp > old_cp as *mut std::ffi::c_char {
+    while cp > old_cp as *mut c_char {
         cmd_left();
     }
 }
@@ -536,7 +536,7 @@ pub unsafe extern "C" fn cmd_repaint(mut old_cp: *const std::ffi::c_char) {
  * Repaint the entire line, without moving the cursor.
  */
 unsafe extern "C" fn cmd_repaint_curr() {
-    let mut save_cp: *mut std::ffi::c_char = cp;
+    let mut save_cp: *mut c_char = cp;
     cmd_home();
     cmd_repaint(save_cp);
 }
@@ -544,32 +544,32 @@ unsafe extern "C" fn cmd_repaint_curr() {
  * Shift the cmdbuf display left a half-screen.
  */
 unsafe extern "C" fn cmd_lshift() {
-    let mut s: *mut std::ffi::c_char = 0 as *mut std::ffi::c_char;
-    let mut save_cp: *mut std::ffi::c_char = 0 as *mut std::ffi::c_char;
-    let mut cols: std::ffi::c_int = 0;
+    let mut s: *mut c_char = 0 as *mut c_char;
+    let mut save_cp: *mut c_char = 0 as *mut c_char;
+    let mut cols: i32 = 0;
     /*
      * Start at the first displayed char, count how far to the
      * right we'd have to move to reach the center of the screen.
      */
     s = cmdbuf.as_mut_ptr().offset(cmd_offset as isize);
-    cols = 0 as std::ffi::c_int;
-    while cols < (sc_width - prompt_col) / 2 as std::ffi::c_int
-        && *s as std::ffi::c_int != '\0' as i32
+    cols = 0 as i32;
+    while cols < (sc_width - prompt_col) / 2 as i32
+        && *s as i32 != '\0' as i32
     {
-        let mut width: std::ffi::c_int = 0;
-        cmd_step_right(&mut s, &mut width, 0 as *mut std::ffi::c_int);
+        let mut width: i32 = 0;
+        cmd_step_right(&mut s, &mut width, 0 as *mut i32);
         cols += width;
     }
-    while *s as std::ffi::c_int != '\0' as i32 {
-        let mut width_0: std::ffi::c_int = 0;
-        let mut ns: *mut std::ffi::c_char = s;
-        cmd_step_right(&mut ns, &mut width_0, 0 as *mut std::ffi::c_int);
-        if width_0 > 0 as std::ffi::c_int {
+    while *s as i32 != '\0' as i32 {
+        let mut width_0: i32 = 0;
+        let mut ns: *mut c_char = s;
+        cmd_step_right(&mut ns, &mut width_0, 0 as *mut i32);
+        if width_0 > 0 as i32 {
             break;
         }
         s = ns;
     }
-    cmd_offset = s.offset_from(cmdbuf.as_mut_ptr()) as std::ffi::c_long as std::ffi::c_int;
+    cmd_offset = s.offset_from(cmdbuf.as_mut_ptr()) as i64 as i32;
     save_cp = cp;
     cmd_home();
     cmd_repaint(save_cp);
@@ -578,22 +578,22 @@ unsafe extern "C" fn cmd_lshift() {
  * Shift the cmdbuf display right a half-screen.
  */
 unsafe extern "C" fn cmd_rshift() {
-    let mut s: *mut std::ffi::c_char = 0 as *mut std::ffi::c_char;
-    let mut save_cp: *mut std::ffi::c_char = 0 as *mut std::ffi::c_char;
-    let mut cols: std::ffi::c_int = 0;
+    let mut s: *mut c_char = 0 as *mut c_char;
+    let mut save_cp: *mut c_char = 0 as *mut c_char;
+    let mut cols: i32 = 0;
     /*
      * Start at the first displayed char, count how far to the
      * left we'd have to move to traverse a half-screen width
      * of displayed characters.
      */
     s = cmdbuf.as_mut_ptr().offset(cmd_offset as isize);
-    cols = 0 as std::ffi::c_int;
-    while cols < (sc_width - prompt_col) / 2 as std::ffi::c_int && s > cmdbuf.as_mut_ptr() {
-        let mut width: std::ffi::c_int = 0;
-        cmd_step_left(&mut s, &mut width, 0 as *mut std::ffi::c_int);
+    cols = 0 as i32;
+    while cols < (sc_width - prompt_col) / 2 as i32 && s > cmdbuf.as_mut_ptr() {
+        let mut width: i32 = 0;
+        cmd_step_left(&mut s, &mut width, 0 as *mut i32);
         cols += width;
     }
-    cmd_offset = s.offset_from(cmdbuf.as_mut_ptr()) as std::ffi::c_long as std::ffi::c_int;
+    cmd_offset = s.offset_from(cmdbuf.as_mut_ptr()) as i64 as i32;
     save_cp = cp;
     cmd_home();
     cmd_repaint(save_cp);
@@ -601,29 +601,29 @@ unsafe extern "C" fn cmd_rshift() {
 /*
  * Move cursor right one character.
  */
-unsafe extern "C" fn cmd_right() -> std::ffi::c_int {
-    let mut pr: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
-    let mut ncp: *mut std::ffi::c_char = 0 as *mut std::ffi::c_char;
-    let mut width: std::ffi::c_int = 0;
-    if *cp as std::ffi::c_int == '\0' as i32 {
+unsafe extern "C" fn cmd_right() -> i32 {
+    let mut pr: *const c_char = 0 as *const c_char;
+    let mut ncp: *mut c_char = 0 as *mut c_char;
+    let mut width: i32 = 0;
+    if *cp as i32 == '\0' as i32 {
         /* Already at the end of the line. */
         return CC_OK;
     }
     ncp = cp;
-    pr = cmd_step_right(&mut ncp, &mut width, 0 as *mut std::ffi::c_int);
+    pr = cmd_step_right(&mut ncp, &mut width, 0 as *mut i32);
     if cmd_col + width >= sc_width {
         cmd_lshift();
-    } else if cmd_col + width == sc_width - 1 as std::ffi::c_int
-        && *cp.offset(1 as std::ffi::c_int as isize) as std::ffi::c_int != '\0' as i32
+    } else if cmd_col + width == sc_width - 1 as i32
+        && *cp.offset(1 as i32 as isize) as i32 != '\0' as i32
     {
         cmd_lshift();
     }
     cp = ncp;
     cmd_col += width;
     putstr(pr);
-    while *cp as std::ffi::c_int != '\0' as i32 {
-        pr = cmd_step_right(&mut ncp, &mut width, 0 as *mut std::ffi::c_int);
-        if width > 0 as std::ffi::c_int {
+    while *cp as i32 != '\0' as i32 {
+        pr = cmd_step_right(&mut ncp, &mut width, 0 as *mut i32);
+        if width > 0 as i32 {
             break;
         }
         putstr(pr);
@@ -634,10 +634,10 @@ unsafe extern "C" fn cmd_right() -> std::ffi::c_int {
 /*
  * Move cursor left one character.
  */
-unsafe extern "C" fn cmd_left() -> std::ffi::c_int {
-    let mut ncp: *mut std::ffi::c_char = 0 as *mut std::ffi::c_char;
-    let mut width: std::ffi::c_int = 0 as std::ffi::c_int;
-    let mut bswidth: std::ffi::c_int = 0 as std::ffi::c_int;
+unsafe extern "C" fn cmd_left() -> i32 {
+    let mut ncp: *mut c_char = 0 as *mut c_char;
+    let mut width: i32 = 0 as i32;
+    let mut bswidth: i32 = 0 as i32;
     if cp <= cmdbuf.as_mut_ptr() {
         /* Already at the beginning of the line */
         return CC_OK;
@@ -645,7 +645,7 @@ unsafe extern "C" fn cmd_left() -> std::ffi::c_int {
     ncp = cp;
     while ncp > cmdbuf.as_mut_ptr() {
         cmd_step_left(&mut ncp, &mut width, &mut bswidth);
-        if width > 0 as std::ffi::c_int {
+        if width > 0 as i32 {
             break;
         }
     }
@@ -657,7 +657,7 @@ unsafe extern "C" fn cmd_left() -> std::ffi::c_int {
     loop {
         let fresh2 = bswidth;
         bswidth = bswidth - 1;
-        if !(fresh2 > 0 as std::ffi::c_int) {
+        if !(fresh2 > 0 as i32) {
             break;
         }
         putbs();
@@ -668,11 +668,11 @@ unsafe extern "C" fn cmd_left() -> std::ffi::c_int {
 /*
  * Insert a char into the command buffer, at the current position.
  */
-unsafe extern "C" fn cmd_ichar(cs: &str, clen: usize) -> std::ffi::c_int {
-    let mut s: *mut std::ffi::c_char = 0 as *mut std::ffi::c_char;
+unsafe extern "C" fn cmd_ichar(cs: &str, clen: usize) -> i32 {
+    let mut s: *mut c_char = 0 as *mut c_char;
     if (strlen(cmdbuf.as_mut_ptr())).wrapping_add(clen)
-        >= (::core::mem::size_of::<[std::ffi::c_char; 2048]>() as std::ffi::c_ulong)
-            .wrapping_sub(1 as std::ffi::c_int as std::ffi::c_ulong)
+        >= (::core::mem::size_of::<[c_char; 2048]>() as u64)
+            .wrapping_sub(1 as i32 as u64)
     {
         /* No room in the command buffer for another char. */
         bell();
@@ -683,15 +683,15 @@ unsafe extern "C" fn cmd_ichar(cs: &str, clen: usize) -> std::ffi::c_int {
      * Make room for the new character (shift the tail of the buffer right).
      */
     s = &mut *cmdbuf.as_mut_ptr().offset((strlen
-        as unsafe extern "C" fn(*const std::ffi::c_char) -> std::ffi::c_ulong)(
+        as unsafe extern "C" fn(*const c_char) -> u64)(
         cmdbuf.as_mut_ptr()
-    ) as isize) as *mut std::ffi::c_char;
+    ) as isize) as *mut c_char;
 
     /*
      * Insert the character into the buffer.
      */
     while s >= cp {
-        *s.offset(clen as isize) = *s.offset(0 as std::ffi::c_int as isize);
+        *s.offset(clen as isize) = *s.offset(0 as i32 as isize);
         s = s.offset(-1);
     }
     s = cp;
@@ -714,9 +714,9 @@ unsafe extern "C" fn cmd_ichar(cs: &str, clen: usize) -> std::ffi::c_int {
  * Backspace in the command buffer.
  * Delete the char to the left of the cursor.
  */
-unsafe extern "C" fn cmd_erase() -> std::ffi::c_int {
-    let mut s: *mut std::ffi::c_char = 0 as *mut std::ffi::c_char;
-    let mut clen: std::ffi::c_int = 0;
+unsafe extern "C" fn cmd_erase() -> i32 {
+    let mut s: *mut c_char = 0 as *mut c_char;
+    let mut clen: i32 = 0;
     if cp == cmdbuf.as_mut_ptr() {
         /*
          * Backspace past beginning of the buffer:
@@ -729,14 +729,14 @@ unsafe extern "C" fn cmd_erase() -> std::ffi::c_int {
      */
     s = cp;
     cmd_left();
-    clen = s.offset_from(cp) as std::ffi::c_long as std::ffi::c_int;
+    clen = s.offset_from(cp) as i64 as i32;
     /*
      * Remove the char from the buffer (shift the buffer left).
      */
     s = cp;
     loop {
-        *s.offset(0 as std::ffi::c_int as isize) = *s.offset(clen as isize);
-        if *s.offset(0 as std::ffi::c_int as isize) as std::ffi::c_int == '\0' as i32 {
+        *s.offset(0 as i32 as isize) = *s.offset(clen as isize);
+        if *s.offset(0 as i32 as isize) as i32 == '\0' as i32 {
             break;
         }
         s = s.offset(1);
@@ -752,7 +752,7 @@ unsafe extern "C" fn cmd_erase() -> std::ffi::c_int {
      */
     if curr_cmdflags & CF_QUIT_ON_ERASE != 0
         && cp == cmdbuf.as_mut_ptr()
-        && *cp as std::ffi::c_int == '\0' as i32
+        && *cp as i32 == '\0' as i32
     {
         return CC_QUIT;
     }
@@ -761,8 +761,8 @@ unsafe extern "C" fn cmd_erase() -> std::ffi::c_int {
 /*
  * Delete the char under the cursor.
  */
-unsafe extern "C" fn cmd_delete() -> std::ffi::c_int {
-    if *cp as std::ffi::c_int == '\0' as i32 {
+unsafe extern "C" fn cmd_delete() -> i32 {
+    if *cp as i32 == '\0' as i32 {
         /* At end of string; there is no char under the cursor. */
         return CC_OK;
     }
@@ -776,16 +776,16 @@ unsafe extern "C" fn cmd_delete() -> std::ffi::c_int {
 /*
  * Delete the "word" to the left of the cursor.
  */
-unsafe extern "C" fn cmd_werase() -> std::ffi::c_int {
+unsafe extern "C" fn cmd_werase() -> i32 {
     if cp > cmdbuf.as_mut_ptr()
-        && *cp.offset(-(1 as std::ffi::c_int) as isize) as std::ffi::c_int == ' ' as i32
+        && *cp.offset(-(1 as i32) as isize) as i32 == ' ' as i32
     {
         /*
          * If the char left of cursor is a space,
          * erase all the spaces left of cursor (to the first non-space).
          */
         while cp > cmdbuf.as_mut_ptr()
-            && *cp.offset(-(1 as std::ffi::c_int) as isize) as std::ffi::c_int == ' ' as i32
+            && *cp.offset(-(1 as i32) as isize) as i32 == ' ' as i32
         {
             cmd_erase();
         }
@@ -795,7 +795,7 @@ unsafe extern "C" fn cmd_werase() -> std::ffi::c_int {
          * erase all the nonspaces left of cursor (the whole "word").
          */
         while cp > cmdbuf.as_mut_ptr()
-            && *cp.offset(-(1 as std::ffi::c_int) as isize) as std::ffi::c_int != ' ' as i32
+            && *cp.offset(-(1 as i32) as isize) as i32 != ' ' as i32
         {
             cmd_erase();
         }
@@ -805,13 +805,13 @@ unsafe extern "C" fn cmd_werase() -> std::ffi::c_int {
 /*
  * Delete the "word" under the cursor.
  */
-unsafe extern "C" fn cmd_wdelete() -> std::ffi::c_int {
-    if *cp as std::ffi::c_int == ' ' as i32 {
+unsafe extern "C" fn cmd_wdelete() -> i32 {
+    if *cp as i32 == ' ' as i32 {
         /*
          * If the char under the cursor is a space,
          * delete it and all the spaces right of cursor.
          */
-        while *cp as std::ffi::c_int == ' ' as i32 {
+        while *cp as i32 == ' ' as i32 {
             cmd_delete();
         }
     } else {
@@ -819,7 +819,7 @@ unsafe extern "C" fn cmd_wdelete() -> std::ffi::c_int {
          * If the char under the cursor is not a space,
          * delete it and all nonspaces right of cursor (the whole word).
          */
-        while *cp as std::ffi::c_int != ' ' as i32 && *cp as std::ffi::c_int != '\0' as i32 {
+        while *cp as i32 != ' ' as i32 && *cp as i32 != '\0' as i32 {
             cmd_delete();
         }
     }
@@ -828,14 +828,14 @@ unsafe extern "C" fn cmd_wdelete() -> std::ffi::c_int {
 /*
  * Delete all chars in the command buffer.
  */
-unsafe extern "C" fn cmd_kill() -> std::ffi::c_int {
-    if cmdbuf[0 as std::ffi::c_int as usize] as std::ffi::c_int == '\0' as i32 {
+unsafe extern "C" fn cmd_kill() -> i32 {
+    if cmdbuf[0 as i32 as usize] as i32 == '\0' as i32 {
         /* Buffer is already empty; abort the current command. */
         return CC_QUIT;
     }
-    cmd_offset = 0 as std::ffi::c_int;
+    cmd_offset = 0 as i32;
     cmd_home();
-    *cp = '\0' as i32 as std::ffi::c_char;
+    *cp = '\0' as i32 as c_char;
     have_updown_match = LFALSE;
     cmd_repaint(cp);
     /*
@@ -852,8 +852,8 @@ unsafe extern "C" fn cmd_kill() -> std::ffi::c_int {
  */
 #[no_mangle]
 pub unsafe extern "C" fn set_mlist(
-    mut mlist: *mut std::ffi::c_void,
-    mut cmdflags: std::ffi::c_int,
+    mut mlist: *mut c_void,
+    mut cmdflags: i32,
 ) {
     curr_mlist = mlist as *mut mlist;
     curr_cmdflags = cmdflags;
@@ -867,8 +867,8 @@ pub unsafe extern "C" fn set_mlist(
  * Only consider entries whose first updown_match chars are equal to
  * cmdbuf's corresponding chars.
  */
-unsafe extern "C" fn cmd_updown(mut action: std::ffi::c_int) -> std::ffi::c_int {
-    let mut s: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
+unsafe extern "C" fn cmd_updown(mut action: i32) -> i32 {
+    let mut s: *const c_char = 0 as *const c_char;
     let mut ml: *mut mlist = 0 as *mut mlist;
     if curr_mlist.is_null() {
         /*
@@ -878,7 +878,7 @@ unsafe extern "C" fn cmd_updown(mut action: std::ffi::c_int) -> std::ffi::c_int 
         return CC_OK;
     }
     if have_updown_match as u64 == 0 {
-        updown_match = cp.offset_from(cmdbuf.as_mut_ptr()) as std::ffi::c_long as size_t;
+        updown_match = cp.offset_from(cmdbuf.as_mut_ptr()) as i64 as size_t;
         have_updown_match = LTRUE;
     }
     /*
@@ -897,7 +897,7 @@ unsafe extern "C" fn cmd_updown(mut action: std::ffi::c_int) -> std::ffi::c_int 
              */
             break;
         }
-        if strncmp(cmdbuf.as_mut_ptr(), (*ml).string, updown_match) == 0 as std::ffi::c_int {
+        if strncmp(cmdbuf.as_mut_ptr(), (*ml).string, updown_match) == 0 as i32 {
             /*
              * This entry matches; stop here.
              * Copy the entry into cmdbuf and echo it on the screen.
@@ -905,14 +905,14 @@ unsafe extern "C" fn cmd_updown(mut action: std::ffi::c_int) -> std::ffi::c_int 
             (*curr_mlist).curr_mp = ml;
             s = (*ml).string;
             if s.is_null() {
-                s = b"\0" as *const u8 as *const std::ffi::c_char;
+                s = b"\0" as *const u8 as *const c_char;
             }
-            cmd_offset = 0 as std::ffi::c_int;
+            cmd_offset = 0 as i32;
             cmd_home();
             clear_eol();
             strcpy(cmdbuf.as_mut_ptr(), s);
             cp = cmdbuf.as_mut_ptr();
-            while *cp as std::ffi::c_int != '\0' as i32 {
+            while *cp as i32 != '\0' as i32 {
                 cmd_right();
             }
             return CC_OK;
@@ -930,14 +930,14 @@ unsafe extern "C" fn cmd_updown(mut action: std::ffi::c_int) -> std::ffi::c_int 
 #[no_mangle]
 pub unsafe extern "C" fn save_updown_match() -> ssize_t {
     if have_updown_match as u64 == 0 {
-        return -(1 as std::ffi::c_int) as ssize_t;
+        return -(1 as i32) as ssize_t;
     }
     return updown_match as ssize_t;
 }
 #[no_mangle]
 pub unsafe extern "C" fn restore_updown_match(mut udm: ssize_t) {
     updown_match = udm as size_t;
-    have_updown_match = (udm != -(1 as std::ffi::c_int) as ssize_t) as std::ffi::c_int as lbool;
+    have_updown_match = (udm != -(1 as i32) as ssize_t) as i32 as lbool;
 }
 unsafe extern "C" fn ml_link(mut mlist: *mut mlist, mut ml: *mut mlist) {
     (*ml).next = mlist;
@@ -955,14 +955,14 @@ unsafe extern "C" fn ml_unlink(mut ml: *mut mlist) {
 #[no_mangle]
 pub unsafe extern "C" fn cmd_addhist(
     mut mlist: *mut mlist,
-    mut cmd: *const std::ffi::c_char,
+    mut cmd: *const c_char,
     mut modified: lbool,
 ) {
     let mut ml: *mut mlist = 0 as *mut mlist;
     /*
      * Don't save a trivial command.
      */
-    if strlen(cmd) == 0 as std::ffi::c_int as std::ffi::c_ulong {
+    if strlen(cmd) == 0 as i32 as u64 {
         return;
     }
     let opts = get_options();
@@ -971,10 +971,10 @@ pub unsafe extern "C" fn cmd_addhist(
         ml = (*mlist).next;
         while !((*ml).string).is_null() {
             next = (*ml).next;
-            if strcmp((*ml).string, cmd) == 0 as std::ffi::c_int {
+            if strcmp((*ml).string, cmd) == 0 as i32 {
                 ml_unlink(ml);
-                free((*ml).string as *mut std::ffi::c_void);
-                free(ml as *mut std::ffi::c_void);
+                free((*ml).string as *mut c_void);
+                free(ml as *mut c_void);
             }
             ml = next;
         }
@@ -984,14 +984,14 @@ pub unsafe extern "C" fn cmd_addhist(
      * last command in the history.
      */
     ml = (*mlist).prev;
-    if ml == mlist || strcmp((*ml).string, cmd) != 0 as std::ffi::c_int {
+    if ml == mlist || strcmp((*ml).string, cmd) != 0 as i32 {
         /*
          * Did not find command in history.
          * Save the command and put it at the end of the history list.
          */
         ml = ecalloc(
-            1 as std::ffi::c_int as size_t,
-            ::core::mem::size_of::<mlist>() as std::ffi::c_ulong,
+            1 as i32 as size_t,
+            ::core::mem::size_of::<mlist>() as u64,
         ) as *mut mlist;
         (*ml).string = save(cmd);
         (*ml).modified = modified;
@@ -1027,16 +1027,16 @@ pub unsafe extern "C" fn cmd_accept() {
  *      CC_QUIT The char requests the current command to be aborted.
  */
 unsafe extern "C" fn cmd_edit(
-    mut c: std::ffi::c_char,
+    mut c: c_char,
     mut stay_in_completion: bool,
-) -> std::ffi::c_int {
-    let mut action: std::ffi::c_int = 0;
-    let mut flags: std::ffi::c_int = 0;
+) -> i32 {
+    let mut action: i32 = 0;
+    let mut flags: i32 = 0;
     let opts = get_options();
     /*
      * See if the char is indeed a line-editing command.
      */
-    flags = 0 as std::ffi::c_int;
+    flags = 0 as i32;
     if curr_mlist.is_null() {
         /*
          * No current history; don't accept history manipulation cmds.
@@ -1086,10 +1086,10 @@ unsafe extern "C" fn cmd_edit(
             if !stay_in_completion {
                 in_completion = LFALSE;
             }
-            while *cp as std::ffi::c_int != '\0' as i32 && *cp as std::ffi::c_int != ' ' as i32 {
+            while *cp as i32 != '\0' as i32 && *cp as i32 != ' ' as i32 {
                 cmd_right();
             }
-            while *cp as std::ffi::c_int == ' ' as i32 {
+            while *cp as i32 == ' ' as i32 {
                 cmd_right();
             }
             return CC_OK;
@@ -1099,12 +1099,12 @@ unsafe extern "C" fn cmd_edit(
                 in_completion = LFALSE;
             }
             while cp > cmdbuf.as_mut_ptr()
-                && *cp.offset(-(1 as std::ffi::c_int) as isize) as std::ffi::c_int == ' ' as i32
+                && *cp.offset(-(1 as i32) as isize) as i32 == ' ' as i32
             {
                 cmd_left();
             }
             while cp > cmdbuf.as_mut_ptr()
-                && *cp.offset(-(1 as std::ffi::c_int) as isize) as std::ffi::c_int != ' ' as i32
+                && *cp.offset(-(1 as i32) as isize) as i32 != ' ' as i32
             {
                 cmd_left();
             }
@@ -1114,7 +1114,7 @@ unsafe extern "C" fn cmd_edit(
             if !stay_in_completion {
                 in_completion = LFALSE;
             }
-            cmd_offset = 0 as std::ffi::c_int;
+            cmd_offset = 0 as i32;
             cmd_home();
             cmd_repaint(cp);
             return CC_OK;
@@ -1123,7 +1123,7 @@ unsafe extern "C" fn cmd_edit(
             if !stay_in_completion {
                 in_completion = LFALSE;
             }
-            while *cp as std::ffi::c_int != '\0' as i32 {
+            while *cp as i32 != '\0' as i32 {
                 cmd_right();
             }
             return CC_OK;
@@ -1193,15 +1193,15 @@ unsafe extern "C" fn cmd_edit(
 /*
  * Insert a string into the command buffer, at the current position.
  */
-unsafe extern "C" fn cmd_istr(mut str: *const std::ffi::c_char) -> std::ffi::c_int {
-    let mut endline: *const std::ffi::c_char = str.offset(strlen(str) as isize);
-    let mut s: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
-    let mut action: std::ffi::c_int = 0;
+unsafe extern "C" fn cmd_istr(mut str: *const c_char) -> i32 {
+    let mut endline: *const c_char = str.offset(strlen(str) as isize);
+    let mut s: *const c_char = 0 as *const c_char;
+    let mut action: i32 = 0;
     s = str;
-    while *s as std::ffi::c_int != '\0' as i32 {
-        let mut os: *const std::ffi::c_char = s;
-        step_charc(&mut s, 1 as std::ffi::c_int, endline);
-        action = cmd_ichar(os, s.offset_from(os) as std::ffi::c_long as size_t);
+    while *s as i32 != '\0' as i32 {
+        let mut os: *const c_char = s;
+        step_charc(&mut s, 1 as i32, endline);
+        action = cmd_ichar(os, s.offset_from(os) as i64 as size_t);
         if action != CC_OK {
             return action;
         }
@@ -1211,19 +1211,19 @@ unsafe extern "C" fn cmd_istr(mut str: *const std::ffi::c_char) -> std::ffi::c_i
 /*
  * Set tk_original to word.
  */
-unsafe extern "C" fn set_tk_original(mut word: *const std::ffi::c_char) {
+unsafe extern "C" fn set_tk_original(mut word: *const c_char) {
     if !tk_original.is_null() {
-        free(tk_original as *mut std::ffi::c_void);
+        free(tk_original as *mut c_void);
     }
     tk_original = ecalloc(
-        (cp.offset_from(word) as std::ffi::c_long as size_t)
-            .wrapping_add(1 as std::ffi::c_int as size_t),
-        ::core::mem::size_of::<std::ffi::c_char>() as std::ffi::c_ulong,
-    ) as *mut std::ffi::c_char;
+        (cp.offset_from(word) as i64 as size_t)
+            .wrapping_add(1 as i32 as size_t),
+        ::core::mem::size_of::<c_char>() as u64,
+    ) as *mut c_char;
     strncpy(
         tk_original,
         word,
-        cp.offset_from(word) as std::ffi::c_long as size_t,
+        cp.offset_from(word) as i64 as size_t,
     );
 }
 /*
@@ -1232,26 +1232,26 @@ unsafe extern "C" fn set_tk_original(mut word: *const std::ffi::c_char) {
  * Return pointer to the beginning of the word and put the
  * cursor at the end of the word.
  */
-unsafe extern "C" fn delimit_word() -> *mut std::ffi::c_char {
-    let mut word: *mut std::ffi::c_char = 0 as *mut std::ffi::c_char;
-    let mut p: *mut std::ffi::c_char = 0 as *mut std::ffi::c_char;
-    let mut delim_quoted: std::ffi::c_int = LFALSE as std::ffi::c_int;
-    let mut meta_quoted: std::ffi::c_int = LFALSE as std::ffi::c_int;
-    let mut esc: *const std::ffi::c_char = get_meta_escape();
+unsafe extern "C" fn delimit_word() -> *mut c_char {
+    let mut word: *mut c_char = 0 as *mut c_char;
+    let mut p: *mut c_char = 0 as *mut c_char;
+    let mut delim_quoted: i32 = LFALSE as i32;
+    let mut meta_quoted: i32 = LFALSE as i32;
+    let mut esc: *const c_char = get_meta_escape();
     let mut esclen: size_t = strlen(esc);
     /*
      * Move cursor to end of word.
      */
-    if *cp as std::ffi::c_int != ' ' as i32 && *cp as std::ffi::c_int != '\0' as i32 {
+    if *cp as i32 != ' ' as i32 && *cp as i32 != '\0' as i32 {
         /*
          * Cursor is on a nonspace.
          * Move cursor right to the next space.
          */
-        while *cp as std::ffi::c_int != ' ' as i32 && *cp as std::ffi::c_int != '\0' as i32 {
+        while *cp as i32 != ' ' as i32 && *cp as i32 != '\0' as i32 {
             cmd_right();
         }
     } else if cp > cmdbuf.as_mut_ptr()
-        && *cp.offset(-(1 as std::ffi::c_int) as isize) as std::ffi::c_int != ' ' as i32
+        && *cp.offset(-(1 as i32) as isize) as i32 != ' ' as i32
     {
         /*
          * Cursor is on a space, and char to the left is a nonspace.
@@ -1262,7 +1262,7 @@ unsafe extern "C" fn delimit_word() -> *mut std::ffi::c_char {
      * Find the beginning of the word which the cursor is in.
      */
     if cp == cmdbuf.as_mut_ptr() {
-        return 0 as *mut std::ffi::c_char;
+        return 0 as *mut c_char;
     }
     /*
      * If we have an unbalanced quote (that is, an open quote
@@ -1271,7 +1271,7 @@ unsafe extern "C" fn delimit_word() -> *mut std::ffi::c_char {
      */
     word = cmdbuf.as_mut_ptr();
     while word < cp {
-        if *word as std::ffi::c_int != ' ' as i32 {
+        if *word as i32 != ' ' as i32 {
             break;
         }
         word = word.offset(1);
@@ -1282,21 +1282,21 @@ unsafe extern "C" fn delimit_word() -> *mut std::ffi::c_char {
     p = cmdbuf.as_mut_ptr();
     while p < cp {
         if meta_quoted != 0 {
-            meta_quoted = LFALSE as std::ffi::c_int;
-        } else if esclen > 0 as std::ffi::c_int as size_t
+            meta_quoted = LFALSE as i32;
+        } else if esclen > 0 as i32 as size_t
             && p.offset(esclen as isize) < cp
-            && strncmp(p, esc, esclen) == 0 as std::ffi::c_int
+            && strncmp(p, esc, esclen) == 0 as i32
         {
-            meta_quoted = LTRUE as std::ffi::c_int;
-            p = p.offset(esclen.wrapping_sub(1 as std::ffi::c_int as size_t) as isize);
+            meta_quoted = LTRUE as i32;
+            p = p.offset(esclen.wrapping_sub(1 as i32 as size_t) as isize);
         } else if delim_quoted != 0 {
-            if *p as std::ffi::c_int == closequote as std::ffi::c_int {
-                delim_quoted = LFALSE as std::ffi::c_int;
+            if *p as i32 == closequote as i32 {
+                delim_quoted = LFALSE as i32;
             }
-        } else if *p as std::ffi::c_int == openquote as std::ffi::c_int {
-            delim_quoted = LTRUE as std::ffi::c_int;
-        } else if *p as std::ffi::c_int == ' ' as i32 {
-            word = p.offset(1 as std::ffi::c_int as isize);
+        } else if *p as i32 == openquote as i32 {
+            delim_quoted = LTRUE as i32;
+        } else if *p as i32 == ' ' as i32 {
+            word = p.offset(1 as i32 as isize);
         }
         p = p.offset(1);
     }
@@ -1308,8 +1308,8 @@ unsafe extern "C" fn delimit_word() -> *mut std::ffi::c_char {
  * which start with that word, and set tk_text to that list.
  */
 unsafe extern "C" fn init_file_compl() {
-    let mut word: *mut std::ffi::c_char = 0 as *mut std::ffi::c_char;
-    let mut c: std::ffi::c_char = 0;
+    let mut word: *mut c_char = 0 as *mut c_char;
+    let mut c: c_char = 0;
     /*
      * Find the original (uncompleted) word in the command buffer.
      */
@@ -1329,17 +1329,17 @@ unsafe extern "C" fn init_file_compl() {
      * a blank-separated list of filenames.
      */
     c = *cp;
-    *cp = '\0' as i32 as std::ffi::c_char;
-    if *word as std::ffi::c_int != openquote as std::ffi::c_int {
+    *cp = '\0' as i32 as c_char;
+    if *word as i32 != openquote as i32 {
         tk_text = fcomplete(word);
     } else {
-        let mut qword: *mut std::ffi::c_char =
-            shell_quote(word.offset(1 as std::ffi::c_int as isize));
+        let mut qword: *mut c_char =
+            shell_quote(word.offset(1 as i32 as isize));
         if qword.is_null() {
-            tk_text = fcomplete(word.offset(1 as std::ffi::c_int as isize));
+            tk_text = fcomplete(word.offset(1 as i32 as isize));
         } else {
             tk_text = fcomplete(qword);
-            free(qword as *mut std::ffi::c_void);
+            free(qword as *mut c_void);
         }
     }
     *cp = c;
@@ -1356,15 +1356,15 @@ unsafe extern "C" fn init_opt_compl() {
  * Return the next word in the current completion list.
  */
 unsafe extern "C" fn next_compl(
-    mut action: std::ffi::c_int,
-    mut prev: *const std::ffi::c_char,
-) -> *const std::ffi::c_char {
+    mut action: i32,
+    mut prev: *const c_char,
+) -> *const c_char {
     match action {
         EC_F_COMPLETE => return forw_textlist(&mut tk_tlist, prev),
         EC_B_COMPLETE => return back_textlist(&mut tk_tlist, prev),
         _ => {}
     }
-    return b"?\0" as *const u8 as *const std::ffi::c_char;
+    return b"?\0" as *const u8 as *const c_char;
 }
 /*
  * Complete the filename before (or under) the cursor.
@@ -1372,9 +1372,9 @@ unsafe extern "C" fn next_compl(
  * remembers whether this call is the first time (create the list),
  * or a subsequent time (step thru the list).
  */
-unsafe extern "C" fn cmd_complete(mut action: std::ffi::c_int) -> std::ffi::c_int {
+unsafe extern "C" fn cmd_complete(mut action: i32) -> i32 {
     let mut current_block: u64;
-    let mut s: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
+    let mut s: *const c_char = 0 as *const c_char;
     if in_completion as u64 == 0 || action == EC_EXPAND {
         /*
          * Expand the word under the cursor and
@@ -1382,8 +1382,8 @@ unsafe extern "C" fn cmd_complete(mut action: std::ffi::c_int) -> std::ffi::c_in
          * (or the entire expansion if we're doing EC_EXPAND).
          */
         if !tk_text.is_null() {
-            free(tk_text as *mut std::ffi::c_void);
-            tk_text = 0 as *mut std::ffi::c_char;
+            free(tk_text as *mut c_void);
+            tk_text = 0 as *mut c_char;
         }
         if curr_cmdflags & CF_OPTION != 0 {
             init_opt_compl();
@@ -1405,7 +1405,7 @@ unsafe extern "C" fn cmd_complete(mut action: std::ffi::c_int) -> std::ffi::c_in
              */
             in_completion = LTRUE;
             init_textlist(&mut tk_tlist, tk_text);
-            tk_trial = next_compl(action, 0 as *mut std::ffi::c_void as *mut std::ffi::c_char);
+            tk_trial = next_compl(action, 0 as *mut c_void as *mut c_char);
         }
     } else {
         /*
@@ -1417,7 +1417,7 @@ unsafe extern "C" fn cmd_complete(mut action: std::ffi::c_int) -> std::ffi::c_in
     /*
      * Remove the original word, or the previous trial completion.
      */
-    while cp > tk_ipoint as *mut std::ffi::c_char {
+    while cp > tk_ipoint as *mut c_char {
         cmd_erase();
     }
     if tk_trial.is_null() {
@@ -1438,15 +1438,15 @@ unsafe extern "C" fn cmd_complete(mut action: std::ffi::c_int) -> std::ffi::c_in
          * If it is a directory, append a slash.
          */
         if cp > cmdbuf.as_mut_ptr()
-            && *cp.offset(-(1 as std::ffi::c_int) as isize) as std::ffi::c_int
-                == closequote as std::ffi::c_int
+            && *cp.offset(-(1 as i32) as isize) as i32
+                == closequote as i32
         {
             cmd_erase();
         }
         let ss = lgetenv("LESSSEPARATOR0");
         let ss_cstring;
         if ss.is_err() {
-            s = b"/\0" as *const u8 as *const std::ffi::c_char;
+            s = b"/\0" as *const u8 as *const c_char;
         } else {
             ss_cstring = CString::new(ss.unwrap()).unwrap();
             s = ss_cstring.as_ptr();
@@ -1476,16 +1476,16 @@ unsafe extern "C" fn cmd_complete(mut action: std::ffi::c_int) -> std::ffi::c_in
  *      CC_PASS  There is a complete UTF-8 sequence in cmd_mbc_buf.
  *               The length of the complete sequence is returned in *plen.
  */
-unsafe extern "C" fn cmd_uchar(mut c: std::ffi::c_char, mut plen: *mut size_t) -> std::ffi::c_int {
+unsafe extern "C" fn cmd_uchar(mut c: c_char, mut plen: *mut size_t) -> i32 {
     if utf_mode == 0 {
-        cmd_mbc_buf[0 as std::ffi::c_int as usize] = c;
-        *plen = 1 as std::ffi::c_int as size_t;
+        cmd_mbc_buf[0 as i32 as usize] = c;
+        *plen = 1 as i32 as size_t;
     } else {
         /* Perform strict validation in all possible cases. */
         let mut current_block_24: u64;
-        if cmd_mbc_buf_len == 0 as std::ffi::c_int {
+        if cmd_mbc_buf_len == 0 as i32 {
             current_block_24 = 6649913226281796480;
-        } else if c as std::ffi::c_int & 0xc0 as std::ffi::c_int == 0x80 as std::ffi::c_int {
+        } else if c as i32 & 0xc0 as i32 == 0x80 as i32 {
             let fresh4 = cmd_mbc_buf_index;
             cmd_mbc_buf_index = cmd_mbc_buf_index + 1;
             cmd_mbc_buf[fresh4 as usize] = c;
@@ -1494,26 +1494,26 @@ unsafe extern "C" fn cmd_uchar(mut c: std::ffi::c_char, mut plen: *mut size_t) -
             }
             if is_utf8_well_formed(cmd_mbc_buf.as_mut_ptr(), cmd_mbc_buf_index) as u64 == 0 {
                 /* complete, but not well formed (non-shortest form), sequence */
-                cmd_mbc_buf_len = 0 as std::ffi::c_int;
+                cmd_mbc_buf_len = 0 as i32;
                 bell();
                 return CC_ERROR;
             }
             current_block_24 = 26972500619410423;
         } else {
             /* Flush incomplete (truncated) sequence. */
-            cmd_mbc_buf_len = 0 as std::ffi::c_int;
+            cmd_mbc_buf_len = 0 as i32;
             bell();
             /* Handle new char. */
             current_block_24 = 6649913226281796480;
         }
         match current_block_24 {
             6649913226281796480 => {
-                cmd_mbc_buf_index = 1 as std::ffi::c_int;
+                cmd_mbc_buf_index = 1 as i32;
                 *cmd_mbc_buf.as_mut_ptr() = c;
-                if c as std::ffi::c_int & 0x80 as std::ffi::c_int == 0 as std::ffi::c_int {
-                    cmd_mbc_buf_len = 1 as std::ffi::c_int;
-                } else if c as std::ffi::c_int & 0xc0 as std::ffi::c_int == 0xc0 as std::ffi::c_int
-                    && !(c as std::ffi::c_int & 0xfe as std::ffi::c_int == 0xfe as std::ffi::c_int)
+                if c as i32 & 0x80 as i32 == 0 as i32 {
+                    cmd_mbc_buf_len = 1 as i32;
+                } else if c as i32 & 0xc0 as i32 == 0xc0 as i32
+                    && !(c as i32 & 0xfe as i32 == 0xfe as i32)
                 {
                     cmd_mbc_buf_len = utf_len(c);
                     return CC_OK;
@@ -1525,7 +1525,7 @@ unsafe extern "C" fn cmd_uchar(mut c: std::ffi::c_char, mut plen: *mut size_t) -
             _ => {}
         }
         *plen = cmd_mbc_buf_len as size_t;
-        cmd_mbc_buf_len = 0 as std::ffi::c_int;
+        cmd_mbc_buf_len = 0 as i32;
     }
     return CC_PASS;
 }
@@ -1555,7 +1555,7 @@ unsafe extern "C" fn cmd_char2(c: char, stay_in_completion: bool) -> i32 {
     /*
      * See if it is a line-editing character.
      */
-    if in_mca() != 0 && len == 1 as std::ffi::c_int as size_t {
+    if in_mca() != 0 && len == 1 as i32 as size_t {
         action = cmd_edit(c, stay_in_completion);
         match action {
             CC_OK | CC_QUIT => return action,
@@ -1596,32 +1596,32 @@ pub unsafe extern "C" fn cmd_setstring(s: &str, uc: bool) -> i32 {
  * Return the number currently in the command buffer.
  */
 #[no_mangle]
-pub unsafe extern "C" fn cmd_int(mut frac: *mut std::ffi::c_long) -> LINENUM {
-    let mut p: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
-    let mut n: LINENUM = 0 as std::ffi::c_int as LINENUM;
+pub unsafe extern "C" fn cmd_int(mut frac: *mut i64) -> LINENUM {
+    let mut p: *const c_char = 0 as *const c_char;
+    let mut n: LINENUM = 0 as i32 as LINENUM;
     let mut err: lbool = LFALSE;
     p = cmdbuf.as_mut_ptr();
-    while *p as std::ffi::c_int >= '0' as i32 && *p as std::ffi::c_int <= '9' as i32 {
-        let (fresh6, fresh7) = n.overflowing_mul(10 as std::ffi::c_int as i64);
+    while *p as i32 >= '0' as i32 && *p as i32 <= '9' as i32 {
+        let (fresh6, fresh7) = n.overflowing_mul(10 as i32 as i64);
         *(&mut n as *mut LINENUM) = fresh6;
-        if fresh7 as std::ffi::c_int != 0 || {
-            let (fresh8, fresh9) = n.overflowing_add((*p as std::ffi::c_int - '0' as i32) as i64);
+        if fresh7 as i32 != 0 || {
+            let (fresh8, fresh9) = n.overflowing_add((*p as i32 - '0' as i32) as i64);
             *(&mut n as *mut LINENUM) = fresh8;
-            fresh9 as std::ffi::c_int != 0
+            fresh9 as i32 != 0
         } {
             error(
-                b"Integer is too big\0" as *const u8 as *const std::ffi::c_char,
-                0 as *mut std::ffi::c_void as *mut PARG,
+                b"Integer is too big\0" as *const u8 as *const c_char,
+                0 as *mut c_void as *mut PARG,
             );
-            return 0 as std::ffi::c_int as LINENUM;
+            return 0 as i32 as LINENUM;
         }
         p = p.offset(1);
     }
-    *frac = 0 as std::ffi::c_int as std::ffi::c_long;
+    *frac = 0 as i32 as i64;
     let fresh10 = p;
     p = p.offset(1);
-    if *fresh10 as std::ffi::c_int == '.' as i32 {
-        *frac = getfraction(&mut p, 0 as *const std::ffi::c_char, &mut err);
+    if *fresh10 as i32 == '.' as i32 {
+        *frac = getfraction(&mut p, 0 as *const c_char, &mut err);
     }
     return n;
 }
@@ -1629,10 +1629,10 @@ pub unsafe extern "C" fn cmd_int(mut frac: *mut std::ffi::c_long) -> LINENUM {
  * Return a pointer to the command buffer.
  */
 #[no_mangle]
-pub unsafe extern "C" fn get_cmdbuf() -> *const std::ffi::c_char {
+pub unsafe extern "C" fn get_cmdbuf() -> *const c_char {
     if cmd_mbc_buf_index < cmd_mbc_buf_len {
         /* Don't return buffer containing an incomplete multibyte char. */
-        return 0 as *const std::ffi::c_char;
+        return 0 as *const c_char;
     }
     return cmdbuf.as_mut_ptr();
 }
@@ -1640,14 +1640,14 @@ pub unsafe extern "C" fn get_cmdbuf() -> *const std::ffi::c_char {
  * Return the last (most recent) string in the current command history.
  */
 #[no_mangle]
-pub unsafe extern "C" fn cmd_lastpattern() -> *const std::ffi::c_char {
+pub unsafe extern "C" fn cmd_lastpattern() -> *const c_char {
     if curr_mlist.is_null() {
-        return 0 as *const std::ffi::c_char;
+        return 0 as *const c_char;
     }
     return (*(*(*curr_mlist).curr_mp).prev).string;
 }
-unsafe extern "C" fn mlist_size(mut ml: *mut mlist) -> std::ffi::c_int {
-    let mut size: std::ffi::c_int = 0 as std::ffi::c_int;
+unsafe extern "C" fn mlist_size(mut ml: *mut mlist) -> i32 {
+    let mut size: i32 = 0 as i32;
     ml = (*ml).next;
     while !((*ml).string).is_null() {
         size += 1;
@@ -1658,86 +1658,86 @@ unsafe extern "C" fn mlist_size(mut ml: *mut mlist) -> std::ffi::c_int {
 /*
  * Get the name of the history file.
  */
-unsafe extern "C" fn histfile_find(mut must_exist: lbool) -> *mut std::ffi::c_char {
+unsafe extern "C" fn histfile_find(mut must_exist: lbool) -> *mut c_char {
     let home_cstring = CString::new(lgetenv("HOME").unwrap_or_default()).unwrap();
-    let mut home: *const std::ffi::c_char = home_cstring.as_ptr();
-    let mut name: *mut std::ffi::c_char = 0 as *mut std::ffi::c_char;
+    let mut home: *const c_char = home_cstring.as_ptr();
+    let mut name: *mut c_char = 0 as *mut c_char;
     /* Try in $XDG_STATE_HOME, then in $HOME/.local/state, then in $XDG_DATA_HOME, then in $HOME. */
     let xdg_state_cstring = lgetenv("XDG_STATE_HOME").ok().map(|s| CString::new(s).unwrap());
-    let xdg_state_ptr = xdg_state_cstring.as_ref().map_or(0 as *const std::ffi::c_char, |c| c.as_ptr());
+    let xdg_state_ptr = xdg_state_cstring.as_ref().map_or(0 as *const c_char, |c| c.as_ptr());
     name = dirfile(
         xdg_state_ptr,
-        &*(b".lesshst\0" as *const u8 as *const std::ffi::c_char)
-            .offset(1 as std::ffi::c_int as isize),
-        must_exist as std::ffi::c_int,
+        &*(b".lesshst\0" as *const u8 as *const c_char)
+            .offset(1 as i32 as isize),
+        must_exist as i32,
     );
     if name.is_null() {
-        let mut dir: *mut std::ffi::c_char = dirfile(
+        let mut dir: *mut c_char = dirfile(
             home,
-            b".local/state\0" as *const u8 as *const std::ffi::c_char,
-            1 as std::ffi::c_int,
+            b".local/state\0" as *const u8 as *const c_char,
+            1 as i32,
         );
         if !dir.is_null() {
             name = dirfile(
                 dir,
-                &*(b".lesshst\0" as *const u8 as *const std::ffi::c_char)
-                    .offset(1 as std::ffi::c_int as isize),
-                must_exist as std::ffi::c_int,
+                &*(b".lesshst\0" as *const u8 as *const c_char)
+                    .offset(1 as i32 as isize),
+                must_exist as i32,
             );
-            free(dir as *mut std::ffi::c_void);
+            free(dir as *mut c_void);
         }
     }
     if name.is_null() {
         let xdg_data_cstring = lgetenv("XDG_DATA_HOME").ok().map(|s| CString::new(s).unwrap());
-        let xdg_data_ptr = xdg_data_cstring.as_ref().map_or(0 as *const std::ffi::c_char, |c| c.as_ptr());
+        let xdg_data_ptr = xdg_data_cstring.as_ref().map_or(0 as *const c_char, |c| c.as_ptr());
         name = dirfile(
             xdg_data_ptr,
-            &*(b".lesshst\0" as *const u8 as *const std::ffi::c_char)
-                .offset(1 as std::ffi::c_int as isize),
-            must_exist as std::ffi::c_int,
+            &*(b".lesshst\0" as *const u8 as *const c_char)
+                .offset(1 as i32 as isize),
+            must_exist as i32,
         );
     }
     if name.is_null() {
         name = dirfile(
             home,
-            b".lesshst\0" as *const u8 as *const std::ffi::c_char,
-            must_exist as std::ffi::c_int,
+            b".lesshst\0" as *const u8 as *const c_char,
+            must_exist as i32,
         );
     }
     return name;
 }
-unsafe extern "C" fn histfile_name(mut must_exist: lbool) -> *mut std::ffi::c_char {
-    let mut wname: *mut std::ffi::c_char = 0 as *mut std::ffi::c_char;
+unsafe extern "C" fn histfile_name(mut must_exist: lbool) -> *mut c_char {
+    let mut wname: *mut c_char = 0 as *mut c_char;
     /* See if filename is explicitly specified by $LESSHISTFILE. */
     if let Ok(name) = lgetenv("LESSHISTFILE") {
         let name_cstring = CString::new(name).unwrap();
         if strcmp(
             name_cstring.as_ptr(),
-            b"-\0" as *const u8 as *const std::ffi::c_char,
-        ) == 0 as std::ffi::c_int
+            b"-\0" as *const u8 as *const c_char,
+        ) == 0 as i32
             || strcmp(
                 name_cstring.as_ptr(),
-                b"/dev/null\0" as *const u8 as *const std::ffi::c_char,
-            ) == 0 as std::ffi::c_int
+                b"/dev/null\0" as *const u8 as *const c_char,
+            ) == 0 as i32
         {
             /* $LESSHISTFILE == "-" means don't use a history file. */
-            return 0 as *mut std::ffi::c_char;
+            return 0 as *mut c_char;
         }
         return save(name_cstring.as_ptr());
     }
     /* See if history file is disabled in the build. */
     if strcmp(
-        b".lesshst\0" as *const u8 as *const std::ffi::c_char,
-        b"\0" as *const u8 as *const std::ffi::c_char,
-    ) == 0 as std::ffi::c_int
+        b".lesshst\0" as *const u8 as *const c_char,
+        b"\0" as *const u8 as *const c_char,
+    ) == 0 as i32
         || strcmp(
-            b".lesshst\0" as *const u8 as *const std::ffi::c_char,
-            b"-\0" as *const u8 as *const std::ffi::c_char,
-        ) == 0 as std::ffi::c_int
+            b".lesshst\0" as *const u8 as *const c_char,
+            b"-\0" as *const u8 as *const c_char,
+        ) == 0 as i32
     {
-        return 0 as *mut std::ffi::c_char;
+        return 0 as *mut c_char;
     }
-    wname = 0 as *mut std::ffi::c_char;
+    wname = 0 as *mut c_char;
     if must_exist as u64 == 0 {
         /* If we're writing the file and the file already exists, use it. */
         wname = histfile_find(LTRUE);
@@ -1752,53 +1752,53 @@ unsafe extern "C" fn histfile_name(mut must_exist: lbool) -> *mut std::ffi::c_ch
  */
 unsafe extern "C" fn read_cmdhist2(
     mut action: Option<
-        unsafe extern "C" fn(*mut std::ffi::c_void, *mut mlist, *const std::ffi::c_char) -> (),
+        unsafe extern "C" fn(*mut c_void, *mut mlist, *const c_char) -> (),
     >,
-    mut uparam: *mut std::ffi::c_void,
-    mut skip_search: std::ffi::c_int,
-    mut skip_shell: std::ffi::c_int,
+    mut uparam: *mut c_void,
+    mut skip_search: i32,
+    mut skip_shell: i32,
 ) {
     let mut ml: *mut mlist = 0 as *mut mlist;
-    let mut line: [std::ffi::c_char; 2048] = [0; 2048];
-    let mut filename: *mut std::ffi::c_char = 0 as *mut std::ffi::c_char;
+    let mut line: [c_char; 2048] = [0; 2048];
+    let mut filename: *mut c_char = 0 as *mut c_char;
     let mut f: *mut FILE = 0 as *mut FILE;
-    let mut skip: *mut std::ffi::c_int = 0 as *mut std::ffi::c_int;
+    let mut skip: *mut i32 = 0 as *mut i32;
     filename = histfile_name(LTRUE);
     if filename.is_null() {
         return;
     }
-    f = fopen(filename, b"r\0" as *const u8 as *const std::ffi::c_char);
-    free(filename as *mut std::ffi::c_void);
+    f = fopen(filename, b"r\0" as *const u8 as *const c_char);
+    free(filename as *mut c_void);
     if f.is_null() {
         return;
     }
     if (fgets(
         line.as_mut_ptr(),
-        ::core::mem::size_of::<[std::ffi::c_char; 2048]>() as std::ffi::c_ulong as std::ffi::c_int,
+        ::core::mem::size_of::<[c_char; 2048]>() as u64 as i32,
         f,
     ))
     .is_null()
         || strncmp(
             line.as_mut_ptr(),
-            b".less-history-file:\0" as *const u8 as *const std::ffi::c_char,
-            strlen(b".less-history-file:\0" as *const u8 as *const std::ffi::c_char),
-        ) != 0 as std::ffi::c_int
+            b".less-history-file:\0" as *const u8 as *const c_char,
+            strlen(b".less-history-file:\0" as *const u8 as *const c_char),
+        ) != 0 as i32
     {
         fclose(f);
         return;
     }
     while !(fgets(
         line.as_mut_ptr(),
-        ::core::mem::size_of::<[std::ffi::c_char; 2048]>() as std::ffi::c_ulong as std::ffi::c_int,
+        ::core::mem::size_of::<[c_char; 2048]>() as u64 as i32,
         f,
     ))
     .is_null()
     {
-        let mut p: *mut std::ffi::c_char = 0 as *mut std::ffi::c_char;
+        let mut p: *mut c_char = 0 as *mut c_char;
         p = line.as_mut_ptr();
-        while *p as std::ffi::c_int != '\0' as i32 {
-            if *p as std::ffi::c_int == '\n' as i32 || *p as std::ffi::c_int == '\r' as i32 {
-                *p = '\0' as i32 as std::ffi::c_char;
+        while *p as i32 != '\0' as i32 {
+            if *p as i32 == '\n' as i32 || *p as i32 == '\r' as i32 {
+                *p = '\0' as i32 as c_char;
                 break;
             } else {
                 p = p.offset(1);
@@ -1806,27 +1806,27 @@ unsafe extern "C" fn read_cmdhist2(
         }
         if strcmp(
             line.as_mut_ptr(),
-            b".search\0" as *const u8 as *const std::ffi::c_char,
-        ) == 0 as std::ffi::c_int
+            b".search\0" as *const u8 as *const c_char,
+        ) == 0 as i32
         {
             ml = &mut mlist_search;
             skip = &mut skip_search;
         } else if strcmp(
             line.as_mut_ptr(),
-            b".shell\0" as *const u8 as *const std::ffi::c_char,
-        ) == 0 as std::ffi::c_int
+            b".shell\0" as *const u8 as *const c_char,
+        ) == 0 as i32
         {
             ml = &mut mlist_shell;
             skip = &mut skip_shell;
         } else if strcmp(
             line.as_mut_ptr(),
-            b".mark\0" as *const u8 as *const std::ffi::c_char,
-        ) == 0 as std::ffi::c_int
+            b".mark\0" as *const u8 as *const c_char,
+        ) == 0 as i32
         {
             ml = 0 as *mut mlist;
-        } else if *line.as_mut_ptr() as std::ffi::c_int == '"' as i32 {
+        } else if *line.as_mut_ptr() as i32 == '"' as i32 {
             if !ml.is_null() {
-                if !skip.is_null() && *skip > 0 as std::ffi::c_int {
+                if !skip.is_null() && *skip > 0 as i32 {
                     *skip -= 1;
                     *skip;
                 } else {
@@ -1834,11 +1834,11 @@ unsafe extern "C" fn read_cmdhist2(
                         .expect("non-null function pointer")(
                         uparam,
                         ml,
-                        line.as_mut_ptr().offset(1 as std::ffi::c_int as isize),
+                        line.as_mut_ptr().offset(1 as i32 as isize),
                     );
                 }
             }
-        } else if *line.as_mut_ptr() as std::ffi::c_int == 'm' as i32 {
+        } else if *line.as_mut_ptr() as i32 == 'm' as i32 {
             (Some(action.expect("non-null function pointer"))).expect("non-null function pointer")(
                 uparam,
                 0 as *mut mlist,
@@ -1850,31 +1850,31 @@ unsafe extern "C" fn read_cmdhist2(
 }
 unsafe extern "C" fn read_cmdhist(
     mut action: Option<
-        unsafe extern "C" fn(*mut std::ffi::c_void, *mut mlist, *const std::ffi::c_char) -> (),
+        unsafe extern "C" fn(*mut c_void, *mut mlist, *const c_char) -> (),
     >,
-    mut uparam: *mut std::ffi::c_void,
+    mut uparam: *mut c_void,
     mut skip_search: lbool,
     mut skip_shell: lbool,
 ) {
-    if secure_allow((1 as std::ffi::c_int) << 4 as std::ffi::c_int) == 0 {
+    if secure_allow((1 as i32) << 4 as i32) == 0 {
         return;
     }
     read_cmdhist2(
         action,
         uparam,
-        skip_search as std::ffi::c_int,
-        skip_shell as std::ffi::c_int,
+        skip_search as i32,
+        skip_shell as i32,
     );
     (Some(action.expect("non-null function pointer"))).expect("non-null function pointer")(
         uparam,
         0 as *mut mlist,
-        0 as *const std::ffi::c_char,
+        0 as *const c_char,
     ); /* signal end of file */
 }
 unsafe extern "C" fn addhist_init(
-    mut uparam: *mut std::ffi::c_void,
+    mut uparam: *mut c_void,
     mut ml: *mut mlist,
-    mut string: *const std::ffi::c_char,
+    mut string: *const c_char,
 ) {
     if !ml.is_null() {
         cmd_addhist(ml, string, LFALSE);
@@ -1891,12 +1891,12 @@ pub unsafe extern "C" fn init_cmdhist() {
         Some(
             addhist_init
                 as unsafe extern "C" fn(
-                    *mut std::ffi::c_void,
+                    *mut c_void,
                     *mut mlist,
-                    *const std::ffi::c_char,
+                    *const c_char,
                 ) -> (),
         ),
-        0 as *mut std::ffi::c_void,
+        0 as *mut c_void,
         LFALSE,
         LFALSE,
     );
@@ -1908,14 +1908,14 @@ unsafe extern "C" fn write_mlist_header(mut ml: *mut mlist, mut f: *mut FILE) {
     if ml == &mut mlist_search as *mut mlist {
         fprintf(
             f,
-            b"%s\n\0" as *const u8 as *const std::ffi::c_char,
-            b".search\0" as *const u8 as *const std::ffi::c_char,
+            b"%s\n\0" as *const u8 as *const c_char,
+            b".search\0" as *const u8 as *const c_char,
         );
     } else if ml == &mut mlist_shell as *mut mlist {
         fprintf(
             f,
-            b"%s\n\0" as *const u8 as *const std::ffi::c_char,
-            b".shell\0" as *const u8 as *const std::ffi::c_char,
+            b"%s\n\0" as *const u8 as *const c_char,
+            b".shell\0" as *const u8 as *const c_char,
         );
     }
 }
@@ -1928,7 +1928,7 @@ unsafe extern "C" fn write_mlist(mut ml: *mut mlist, mut f: *mut FILE) {
         if !((*ml).modified as u64 == 0) {
             fprintf(
                 f,
-                b"\"%s\n\0" as *const u8 as *const std::ffi::c_char,
+                b"\"%s\n\0" as *const u8 as *const c_char,
                 (*ml).string,
             );
             (*ml).modified = LFALSE;
@@ -1940,23 +1940,23 @@ unsafe extern "C" fn write_mlist(mut ml: *mut mlist, mut f: *mut FILE) {
 /*
  * Make a temp name in the same directory as filename.
  */
-unsafe extern "C" fn make_tempname(mut filename: *const std::ffi::c_char) -> *mut std::ffi::c_char {
-    let mut lastch: std::ffi::c_char = 0;
-    let mut tempname: *mut std::ffi::c_char = ecalloc(
-        1 as std::ffi::c_int as size_t,
-        (strlen(filename)).wrapping_add(1 as std::ffi::c_int as std::ffi::c_ulong),
-    ) as *mut std::ffi::c_char;
+unsafe extern "C" fn make_tempname(mut filename: *const c_char) -> *mut c_char {
+    let mut lastch: c_char = 0;
+    let mut tempname: *mut c_char = ecalloc(
+        1 as i32 as size_t,
+        (strlen(filename)).wrapping_add(1 as i32 as u64),
+    ) as *mut c_char;
     strcpy(tempname, filename);
     lastch = *tempname.offset(
-        (strlen(tempname)).wrapping_sub(1 as std::ffi::c_int as std::ffi::c_ulong) as isize,
+        (strlen(tempname)).wrapping_sub(1 as i32 as u64) as isize,
     );
     *tempname.offset(
-        (strlen(tempname)).wrapping_sub(1 as std::ffi::c_int as std::ffi::c_ulong) as isize,
-    ) = (if lastch as std::ffi::c_int == 'Q' as i32 {
+        (strlen(tempname)).wrapping_sub(1 as i32 as u64) as isize,
+    ) = (if lastch as i32 == 'Q' as i32 {
         'Z' as i32
     } else {
         'Q' as i32
-    }) as std::ffi::c_char;
+    }) as c_char;
     return tempname;
 }
 /*
@@ -1965,9 +1965,9 @@ unsafe extern "C" fn make_tempname(mut filename: *const std::ffi::c_char) -> *mu
  * created during this session.
  */
 unsafe extern "C" fn copy_hist(
-    mut uparam: *mut std::ffi::c_void,
+    mut uparam: *mut c_void,
     mut ml: *mut mlist,
-    mut string: *const std::ffi::c_char,
+    mut string: *const c_char,
 ) {
     let mut ctx: *mut save_ctx = uparam as *mut save_ctx;
     if !ml.is_null() && ml != (*ctx).mlist {
@@ -1995,7 +1995,7 @@ unsafe extern "C" fn copy_hist(
         /* Copy mlist entry. */
         fprintf(
             (*ctx).fout,
-            b"\"%s\n\0" as *const u8 as *const std::ffi::c_char,
+            b"\"%s\n\0" as *const u8 as *const c_char,
             string,
         );
     }
@@ -2032,16 +2032,16 @@ unsafe extern "C" fn make_file_private(mut f: *mut FILE) {
         },
         __glibc_reserved: [0; 3],
     };
-    let mut r: std::ffi::c_int = fstat(fileno(f), &mut statbuf);
-    if r < 0 as std::ffi::c_int
-        || !(statbuf.st_mode & 0o170000 as std::ffi::c_int as __mode_t
-            == 0o100000 as std::ffi::c_int as __mode_t)
+    let mut r: i32 = fstat(fileno(f), &mut statbuf);
+    if r < 0 as i32
+        || !(statbuf.st_mode & 0o170000 as i32 as __mode_t
+            == 0o100000 as i32 as __mode_t)
     {
         /* Don't chmod if not a regular file. */
         do_chmod = LFALSE;
     }
     if do_chmod as u64 != 0 {
-        fchmod(fileno(f), 0o600 as std::ffi::c_int as __mode_t);
+        fchmod(fileno(f), 0o600 as i32 as __mode_t);
     }
 }
 /*
@@ -2064,18 +2064,18 @@ unsafe extern "C" fn histfile_modified() -> lbool {
  */
 #[no_mangle]
 pub unsafe extern "C" fn save_cmdhist() {
-    let mut histname: *mut std::ffi::c_char = 0 as *mut std::ffi::c_char;
-    let mut tempname: *mut std::ffi::c_char = 0 as *mut std::ffi::c_char;
-    let mut skip_search: std::ffi::c_int = 0;
-    let mut skip_shell: std::ffi::c_int = 0;
+    let mut histname: *mut c_char = 0 as *mut c_char;
+    let mut tempname: *mut c_char = 0 as *mut c_char;
+    let mut skip_search: i32 = 0;
+    let mut skip_shell: i32 = 0;
     let mut ctx: save_ctx = save_ctx {
         mlist: 0 as *mut mlist,
         fout: 0 as *mut FILE,
     };
-    let mut s: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
+    let mut s: *const c_char = 0 as *const c_char;
     let mut fout: *mut FILE = 0 as *mut FILE;
-    let mut histsize: std::ffi::c_int = 0 as std::ffi::c_int;
-    if secure_allow((1 as std::ffi::c_int) << 4 as std::ffi::c_int) == 0
+    let mut histsize: i32 = 0 as i32;
+    if secure_allow((1 as i32) << 4 as i32) == 0
         || histfile_modified() as u64 == 0
     {
         return;
@@ -2085,22 +2085,22 @@ pub unsafe extern "C" fn save_cmdhist() {
         return;
     }
     tempname = make_tempname(histname);
-    fout = fopen(tempname, b"w\0" as *const u8 as *const std::ffi::c_char);
+    fout = fopen(tempname, b"w\0" as *const u8 as *const c_char);
     if !fout.is_null() {
         make_file_private(fout);
         if let Ok(s) = lgetenv("LESSHISTSIZE") {
             let s_cstring = CString::new(s).unwrap();
             histsize = atoi(s_cstring.as_ptr());
         }
-        if histsize <= 0 as std::ffi::c_int {
-            histsize = 100 as std::ffi::c_int;
+        if histsize <= 0 as i32 {
+            histsize = 100 as i32;
         }
         skip_search = mlist_size(&mut mlist_search) - histsize;
         skip_shell = mlist_size(&mut mlist_shell) - histsize;
         fprintf(
             fout,
-            b"%s\n\0" as *const u8 as *const std::ffi::c_char,
-            b".less-history-file:\0" as *const u8 as *const std::ffi::c_char,
+            b"%s\n\0" as *const u8 as *const c_char,
+            b".less-history-file:\0" as *const u8 as *const c_char,
         );
         ctx.fout = fout;
         ctx.mlist = 0 as *mut mlist;
@@ -2108,19 +2108,19 @@ pub unsafe extern "C" fn save_cmdhist() {
             Some(
                 copy_hist
                     as unsafe extern "C" fn(
-                        *mut std::ffi::c_void,
+                        *mut c_void,
                         *mut mlist,
-                        *const std::ffi::c_char,
+                        *const c_char,
                     ) -> (),
             ),
-            &mut ctx as *mut save_ctx as *mut std::ffi::c_void,
+            &mut ctx as *mut save_ctx as *mut c_void,
             skip_search as lbool,
             skip_shell as lbool,
         );
-        save_marks(fout, b".mark\0" as *const u8 as *const std::ffi::c_char);
+        save_marks(fout, b".mark\0" as *const u8 as *const c_char);
         fclose(fout);
         rename(tempname, histname);
     }
-    free(tempname as *mut std::ffi::c_void);
-    free(histname as *mut std::ffi::c_void);
+    free(tempname as *mut c_void);
+    free(histname as *mut c_void);
 }
