@@ -22,10 +22,6 @@ use std::os::unix::fs::PermissionsExt;
 use std::os::unix::io::IntoRawFd;
 extern "C" {
     fn free(_: *mut c_void);
-    fn strcpy(_: *mut c_char, _: *const c_char) -> *mut c_char;
-    fn strncpy(_: *mut c_char, _: *const c_char, _: u64) -> *mut c_char;
-    fn strncmp(_: *const c_char, _: *const c_char, _: u64) -> i32;
-    fn strlen(_: *const c_char) -> u64;
     fn ecalloc(count: size_t, size: size_t) -> *mut c_void;
     fn secure_allow(features: i32) -> i32;
     fn bell();
@@ -208,7 +204,7 @@ pub unsafe fn cmd_putstr(s: &CStr) {
     let mut s: *const c_char = s.as_ptr();
     let mut prev_ch: LWCHAR = 0 as i32 as LWCHAR;
     let mut ch: LWCHAR = 0;
-    let mut endline: *const c_char = s.offset(strlen(s) as isize);
+    let mut endline: *const c_char = s.add(CStr::from_ptr(s).to_bytes().len());
     while *s as i32 != '\0' as i32 {
         let mut os: *const c_char = s;
         let mut width: i32 = 0;
@@ -239,7 +235,7 @@ pub unsafe fn cmd_putstr(s: &CStr) {
  */
 pub unsafe fn len_cmdbuf() -> i32 {
     let mut s: *const c_char = cmdbuf.as_mut_ptr();
-    let mut endline: *const c_char = s.offset(strlen(s) as isize);
+    let mut endline: *const c_char = s.add(cmdbuf.iter().position(|&c| c == 0).unwrap_or(0));
     let mut len: i32 = 0 as i32;
     while *s as i32 != '\0' as i32 {
         step_charc(&mut s, 1 as i32, endline);
@@ -271,13 +267,13 @@ unsafe fn cmd_step_common(
     let mut width: i32 = 0;
     if len == 1 as i32 as size_t {
         pr = prchar(ch);
-        width = strlen(pr) as i32;
+        width = CStr::from_ptr(pr).to_bytes().len() as i32;
     } else {
         pr = prutfchar(ch);
         if is_composing_char(ch) as u64 != 0 {
             width = 0 as i32;
         } else if is_ubin_char(ch) as u64 != 0 {
-            width = strlen(pr) as i32;
+            width = CStr::from_ptr(pr).to_bytes().len() as i32;
         } else {
             let mut prev_ch: LWCHAR = step_char(&mut p, -(1 as i32), cmdbuf.as_mut_ptr());
             if is_combining_char(prev_ch, ch) as u64 != 0 {
@@ -308,7 +304,7 @@ unsafe fn cmd_step_right(
     mut bswidth: *mut i32,
 ) -> *const c_char {
     let mut p: *mut c_char = *pp;
-    let mut ch: LWCHAR = step_char(pp, 1 as i32, p.offset(strlen(p) as isize));
+    let mut ch: LWCHAR = step_char(pp, 1 as i32, p.add(CStr::from_ptr(p).to_bytes().len()));
     return cmd_step_common(
         p,
         ch,
@@ -537,7 +533,8 @@ unsafe fn cmd_left() -> i32 {
 unsafe fn cmd_ichar(cs: &[u8]) -> i32 {
     let mut s: *mut c_char = 0 as *mut c_char;
     let clen = cs.len();
-    if (strlen(cmdbuf.as_mut_ptr()) as usize).wrapping_add(clen)
+    let cmdbuf_len = cmdbuf.iter().position(|&c| c == 0).unwrap_or(0);
+    if cmdbuf_len.wrapping_add(clen)
         >= ::core::mem::size_of::<[c_char; 2048]>().wrapping_sub(1)
     {
         /* No room in the command buffer for another char. */
@@ -548,9 +545,7 @@ unsafe fn cmd_ichar(cs: &[u8]) -> i32 {
     /*
      * Make room for the new character (shift the tail of the buffer right).
      */
-    s = cmdbuf
-        .as_mut_ptr()
-        .offset(strlen(cmdbuf.as_mut_ptr()) as isize);
+    s = cmdbuf.as_mut_ptr().add(cmdbuf_len);
 
     /*
      * Insert the character into the buffer.
@@ -753,7 +748,10 @@ unsafe fn cmd_updown(mut action: i32) -> i32 {
             .string
             .as_ref()
             .map_or(b"\0".as_ptr() as *const c_char, |cs| cs.as_ptr());
-        if strncmp(cmdbuf.as_mut_ptr(), sptr, updown_match) == 0 as i32 {
+        let n = updown_match as usize;
+        let cmdbuf_prefix = std::slice::from_raw_parts(cmdbuf.as_ptr() as *const u8, n);
+        let hist_bytes = CStr::from_ptr(sptr).to_bytes();
+        if hist_bytes.len() >= n && &hist_bytes[..n] == cmdbuf_prefix {
             /*
              * This entry matches; stop here.
              * Copy the entry into cmdbuf and echo it on the screen.
@@ -762,7 +760,17 @@ unsafe fn cmd_updown(mut action: i32) -> i32 {
             cmd_offset = 0 as i32;
             cmd_home();
             clear_eol();
-            strcpy(cmdbuf.as_mut_ptr(), sptr);
+            /* Copy sptr (including null terminator) into cmdbuf. */
+            let src = CStr::from_ptr(sptr).to_bytes_with_nul();
+            let copy_len = src.len().min(cmdbuf.len());
+            std::ptr::copy_nonoverlapping(
+                src.as_ptr(),
+                cmdbuf.as_mut_ptr() as *mut u8,
+                copy_len,
+            );
+            if copy_len == cmdbuf.len() {
+                cmdbuf[cmdbuf.len() - 1] = 0; /* ensure null termination */
+            }
             cp = cmdbuf.as_mut_ptr();
             while *cp as i32 != '\0' as i32 {
                 cmd_right();
@@ -1044,7 +1052,7 @@ unsafe fn cmd_edit(mut c: c_char, mut stay_in_completion: bool) -> i32 {
  * Insert a string into the command buffer, at the current position.
  */
 unsafe fn cmd_istr(mut str: *const c_char) -> i32 {
-    let mut endline: *const c_char = str.offset(strlen(str) as isize);
+    let mut endline: *const c_char = str.add(CStr::from_ptr(str).to_bytes().len());
     let mut s: *const c_char = 0 as *const c_char;
     let mut action: i32 = 0;
     s = str;
@@ -1070,7 +1078,8 @@ unsafe fn set_tk_original(mut word: *const c_char) {
         (cp.offset_from(word) as i64 as size_t).wrapping_add(1 as i32 as size_t),
         ::core::mem::size_of::<c_char>() as u64,
     ) as *mut c_char;
-    strncpy(tk_original, word, cp.offset_from(word) as i64 as size_t);
+    let copy_len = cp.offset_from(word) as usize;
+    std::ptr::copy_nonoverlapping(word as *const u8, tk_original as *mut u8, copy_len);
 }
 /*
  * Find the beginning and end of the "current" word.
@@ -1084,7 +1093,7 @@ unsafe fn delimit_word() -> *mut c_char {
     let mut delim_quoted: i32 = LFALSE as i32;
     let mut meta_quoted: i32 = LFALSE as i32;
     let mut esc: *const c_char = get_meta_escape();
-    let mut esclen: size_t = strlen(esc);
+    let mut esclen: size_t = CStr::from_ptr(esc).to_bytes().len() as size_t;
     /*
      * Move cursor to end of word.
      */
@@ -1129,7 +1138,8 @@ unsafe fn delimit_word() -> *mut c_char {
             meta_quoted = LFALSE as i32;
         } else if esclen > 0 as i32 as size_t
             && p.offset(esclen as isize) < cp
-            && strncmp(p, esc, esclen) == 0 as i32
+            && std::slice::from_raw_parts(p as *const u8, esclen as usize)
+                == std::slice::from_raw_parts(esc as *const u8, esclen as usize)
         {
             meta_quoted = LTRUE as i32;
             p = p.offset(esclen.wrapping_sub(1 as i32 as size_t) as isize);
