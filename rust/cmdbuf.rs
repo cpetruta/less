@@ -21,14 +21,11 @@ use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::io::IntoRawFd;
 extern "C" {
-    fn rename(__old: *const c_char, __new: *const c_char) -> i32;
     fn free(_: *mut c_void);
     fn strcpy(_: *mut c_char, _: *const c_char) -> *mut c_char;
     fn strncpy(_: *mut c_char, _: *const c_char, _: u64) -> *mut c_char;
-    fn strcmp(_: *const c_char, _: *const c_char) -> i32;
     fn strncmp(_: *const c_char, _: *const c_char, _: u64) -> i32;
     fn strlen(_: *const c_char) -> u64;
-    fn save(s: *const c_char) -> *mut c_char;
     fn ecalloc(count: size_t, size: size_t) -> *mut c_void;
     fn secure_allow(features: i32) -> i32;
     fn bell();
@@ -822,7 +819,7 @@ pub unsafe fn cmd_addhist(ml_head: &mut mlist, cmd: &CStr, modified: bool) {
             if (*ml)
                 .string
                 .as_ref()
-                .map_or(false, |cs| strcmp(cs.as_ptr(), cmd.as_ptr()) == 0)
+                .map_or(false, |cs| cs.as_ref() == cmd)
             {
                 ml_unlink(ml);
                 /* CString field is dropped automatically when Box is dropped. */
@@ -840,7 +837,7 @@ pub unsafe fn cmd_addhist(ml_head: &mut mlist, cmd: &CStr, modified: bool) {
         || (*ml)
             .string
             .as_ref()
-            .map_or(true, |cs| strcmp(cs.as_ptr(), cmd.as_ptr()) != 0)
+            .map_or(true, |cs| cs.as_ref() != cmd)
     {
         /*
          * Did not find command in history.
@@ -1500,10 +1497,20 @@ unsafe fn mlist_size(mut ml: *mut mlist) -> i32 {
 /*
  * Get the name of the history file.
  */
-unsafe fn histfile_find(mut must_exist: lbool) -> *mut c_char {
+unsafe fn histfile_find(must_exist: bool) -> Option<String> {
     let home_cstring = CString::new(lgetenv("HOME").unwrap_or_default()).unwrap();
-    let mut home: *const c_char = home_cstring.as_ptr();
-    let mut name: *mut c_char = 0 as *mut c_char;
+    let home: *const c_char = home_cstring.as_ptr();
+    let must_exist_int = must_exist as i32;
+    /* Helper: convert a dirfile() result to Option<String>, freeing the C allocation. */
+    let take = |p: *mut c_char| -> Option<String> {
+        if p.is_null() {
+            None
+        } else {
+            let s = CStr::from_ptr(p).to_string_lossy().into_owned();
+            free(p as *mut c_void);
+            Some(s)
+        }
+    };
     /* Try in $XDG_STATE_HOME, then in $HOME/.local/state, then in $XDG_DATA_HOME, then in $HOME. */
     let xdg_state_cstring = lgetenv("XDG_STATE_HOME")
         .ok()
@@ -1511,72 +1518,72 @@ unsafe fn histfile_find(mut must_exist: lbool) -> *mut c_char {
     let xdg_state_ptr = xdg_state_cstring
         .as_ref()
         .map_or(0 as *const c_char, |c| c.as_ptr());
-    name = dirfile(
+    let name = take(dirfile(
         xdg_state_ptr,
-        &*(b".lesshst\0" as *const u8 as *const c_char).offset(1 as i32 as isize),
-        must_exist as i32,
+        b"lesshst\0".as_ptr() as *const c_char,
+        must_exist_int,
+    ));
+    if name.is_some() {
+        return name;
+    }
+    let dir = dirfile(
+        home,
+        b".local/state\0" as *const u8 as *const c_char,
+        1 as i32,
     );
-    if name.is_null() {
-        let mut dir: *mut c_char = dirfile(
-            home,
-            b".local/state\0" as *const u8 as *const c_char,
-            1 as i32,
-        );
-        if !dir.is_null() {
-            name = dirfile(
-                dir,
-                &*(b".lesshst\0" as *const u8 as *const c_char).offset(1 as i32 as isize),
-                must_exist as i32,
-            );
-            free(dir as *mut c_void);
+    if !dir.is_null() {
+        let name = take(dirfile(
+            dir,
+            b"lesshst\0".as_ptr() as *const c_char,
+            must_exist_int,
+        ));
+        free(dir as *mut c_void);
+        if name.is_some() {
+            return name;
         }
     }
-    if name.is_null() {
-        let xdg_data_cstring = lgetenv("XDG_DATA_HOME")
-            .ok()
-            .map(|s| CString::new(s).unwrap());
-        let xdg_data_ptr = xdg_data_cstring
-            .as_ref()
-            .map_or(0 as *const c_char, |c| c.as_ptr());
-        name = dirfile(
-            xdg_data_ptr,
-            &*(b".lesshst\0" as *const u8 as *const c_char).offset(1 as i32 as isize),
-            must_exist as i32,
-        );
+    let xdg_data_cstring = lgetenv("XDG_DATA_HOME")
+        .ok()
+        .map(|s| CString::new(s).unwrap());
+    let xdg_data_ptr = xdg_data_cstring
+        .as_ref()
+        .map_or(0 as *const c_char, |c| c.as_ptr());
+    let name = take(dirfile(
+        xdg_data_ptr,
+        b"lesshst\0".as_ptr() as *const c_char,
+        must_exist_int,
+    ));
+    if name.is_some() {
+        return name;
     }
-    if name.is_null() {
-        name = dirfile(
-            home,
-            b".lesshst\0" as *const u8 as *const c_char,
-            must_exist as i32,
-        );
-    }
-    return name;
+    take(dirfile(
+        home,
+        b".lesshst\0" as *const u8 as *const c_char,
+        must_exist_int,
+    ))
 }
-unsafe fn histfile_name(mut must_exist: lbool) -> *mut c_char {
-    let mut wname: *mut c_char = 0 as *mut c_char;
+unsafe fn histfile_name(must_exist: bool) -> Option<String> {
     /* See if filename is explicitly specified by $LESSHISTFILE. */
     if let Ok(name) = lgetenv("LESSHISTFILE") {
         if name == "-" || name == "/dev/null" {
             /* $LESSHISTFILE == "-" means don't use a history file. */
-            return 0 as *mut c_char;
+            return None;
         }
-        let name_cstring = CString::new(name).unwrap();
-        return save(name_cstring.as_ptr());
+        return Some(name);
     }
     /* See if history file is disabled in the build. */
     if ".lesshst" == "" || ".lesshst" == "-" {
-        return 0 as *mut c_char;
+        return None;
     }
-    wname = 0 as *mut c_char;
-    if must_exist as u64 == 0 {
+    let mut wname = None;
+    if !must_exist {
         /* If we're writing the file and the file already exists, use it. */
-        wname = histfile_find(LTRUE);
+        wname = histfile_find(true);
     }
-    if wname.is_null() {
+    if wname.is_none() {
         wname = histfile_find(must_exist);
     }
-    return wname;
+    wname
 }
 /*
  * Read a .lesshst file and call a callback for each line in the file.
@@ -1589,12 +1596,10 @@ unsafe fn read_cmdhist2(
 ) {
     let mut ml: *mut mlist = std::ptr::null_mut();
     let mut skip: *mut i32 = std::ptr::null_mut();
-    let filename = histfile_name(LTRUE);
-    if filename.is_null() {
-        return;
-    }
-    let fname = CStr::from_ptr(filename).to_string_lossy().into_owned();
-    free(filename as *mut c_void);
+    let fname = match histfile_name(true) {
+        Some(f) => f,
+        None => return,
+    };
     let file = match File::open(&fname) {
         Ok(f) => f,
         Err(_) => return,
@@ -1703,21 +1708,12 @@ unsafe fn write_mlist(mut ml: *mut mlist, f: &mut BufWriter<File>) {
 /*
  * Make a temp name in the same directory as filename.
  */
-unsafe fn make_tempname(mut filename: *const c_char) -> *mut c_char {
-    let mut lastch: c_char = 0;
-    let mut tempname: *mut c_char = ecalloc(
-        1 as i32 as size_t,
-        (strlen(filename)).wrapping_add(1 as i32 as u64),
-    ) as *mut c_char;
-    strcpy(tempname, filename);
-    lastch = *tempname.offset((strlen(tempname)).wrapping_sub(1 as i32 as u64) as isize);
-    *tempname.offset((strlen(tempname)).wrapping_sub(1 as i32 as u64) as isize) =
-        (if lastch as i32 == 'Q' as i32 {
-            'Z' as i32
-        } else {
-            'Q' as i32
-        }) as c_char;
-    return tempname;
+fn make_tempname(filename: &str) -> String {
+    let mut tempname = filename.to_owned();
+    if let Some(last) = tempname.pop() {
+        tempname.push(if last == 'Q' { 'Z' } else { 'Q' });
+    }
+    tempname
 }
 /*
  * Copy entries from the saved history file to a new file.
@@ -1787,8 +1783,6 @@ unsafe fn histfile_modified() -> lbool {
  * Update the .lesshst file.
  */
 pub unsafe fn save_cmdhist() {
-    let histname: *mut c_char;
-    let tempname: *mut c_char;
     let mut skip_search: i32 = 0;
     let mut skip_shell: i32 = 0;
     let mut ctx: save_ctx = save_ctx {
@@ -1799,13 +1793,12 @@ pub unsafe fn save_cmdhist() {
     if secure_allow(SF_HISTORY) == 0 || histfile_modified() as u64 == 0 {
         return;
     }
-    histname = histfile_name(LFALSE);
-    if histname.is_null() {
-        return;
-    }
-    tempname = make_tempname(histname);
-    let tempname_str = CStr::from_ptr(tempname).to_string_lossy().into_owned();
-    if let Ok(file) = File::create(&tempname_str) {
+    let histname = match histfile_name(false) {
+        Some(n) => n,
+        None => return,
+    };
+    let tempname = make_tempname(&histname);
+    if let Ok(file) = File::create(&tempname) {
         make_file_private(&file);
         let mut fout = BufWriter::new(file);
         if let Ok(s) = lgetenv("LESSHISTSIZE") {
@@ -1835,8 +1828,6 @@ pub unsafe fn save_cmdhist() {
         } else {
             libc::close(raw_fd);
         }
-        rename(tempname, histname);
+        std::fs::rename(&tempname, &histname).ok();
     }
-    free(tempname as *mut c_void);
-    free(histname as *mut c_void);
 }
