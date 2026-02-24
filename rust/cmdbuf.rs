@@ -575,11 +575,11 @@ unsafe extern "C" fn cmd_left() -> i32 {
 /*
  * Insert a char into the command buffer, at the current position.
  */
-unsafe extern "C" fn cmd_ichar(cs: &str, clen: usize) -> i32 {
+unsafe extern "C" fn cmd_ichar(cs: &[u8]) -> i32 {
     let mut s: *mut c_char = 0 as *mut c_char;
-    if (strlen(cmdbuf.as_mut_ptr())).wrapping_add(clen)
-        >= (::core::mem::size_of::<[c_char; 2048]>() as u64)
-            .wrapping_sub(1 as i32 as u64)
+    let clen = cs.len();
+    if (strlen(cmdbuf.as_mut_ptr()) as usize).wrapping_add(clen)
+        >= ::core::mem::size_of::<[c_char; 2048]>().wrapping_sub(1)
     {
         /* No room in the command buffer for another char. */
         bell();
@@ -589,10 +589,7 @@ unsafe extern "C" fn cmd_ichar(cs: &str, clen: usize) -> i32 {
     /*
      * Make room for the new character (shift the tail of the buffer right).
      */
-    s = &mut *cmdbuf.as_mut_ptr().offset((strlen
-        as unsafe extern "C" fn(*const c_char) -> u64)(
-        cmdbuf.as_mut_ptr()
-    ) as isize) as *mut c_char;
+    s = cmdbuf.as_mut_ptr().offset(strlen(cmdbuf.as_mut_ptr()) as isize);
 
     /*
      * Insert the character into the buffer.
@@ -602,10 +599,8 @@ unsafe extern "C" fn cmd_ichar(cs: &str, clen: usize) -> i32 {
         s = s.offset(-1);
     }
     s = cp;
-    while s < cp.offset(clen as isize) {
-        let fresh3 = cs;
-        cs = cs.offset(1);
-        *s = *fresh3;
+    for &byte in cs {
+        *s = byte as c_char;
         s = s.offset(1);
     }
     /*
@@ -1105,7 +1100,8 @@ unsafe extern "C" fn cmd_istr(mut str: *const c_char) -> i32 {
     while *s as i32 != '\0' as i32 {
         let mut os: *const c_char = s;
         step_charc(&mut s, 1 as i32, endline);
-        action = cmd_ichar(os, s.offset_from(os) as i64 as size_t);
+        let clen = s.offset_from(os) as usize;
+        action = cmd_ichar(std::slice::from_raw_parts(os as *const u8, clen));
         if action != CC_OK {
             return action;
         }
@@ -1444,7 +1440,7 @@ unsafe extern "C" fn cmd_uchar(mut c: c_char, mut plen: *mut size_t) -> i32 {
  */
 unsafe extern "C" fn cmd_char2(c: char, stay_in_completion: bool) -> i32 {
     let mut len: size_t = 0;
-    let mut action = cmd_uchar(c, &mut len);
+    let mut action = cmd_uchar(c as c_char, &mut len);
     if action != CC_PASS {
         return action;
     }
@@ -1453,14 +1449,14 @@ unsafe extern "C" fn cmd_char2(c: char, stay_in_completion: bool) -> i32 {
          * Insert the char, even if it is a line-editing char.
          */
         literal = LFALSE;
-        return cmd_ichar(cmd_mbc_buf.as_mut_ptr(), len);
+        return cmd_ichar(std::slice::from_raw_parts(cmd_mbc_buf.as_ptr() as *const u8, len as usize));
     }
 
     /*
      * See if it is a line-editing character.
      */
     if in_mca() != 0 && len == 1 as i32 as size_t {
-        action = cmd_edit(c, stay_in_completion);
+        action = cmd_edit(c as c_char, stay_in_completion);
         match action {
             CC_OK | CC_QUIT => return action,
             CC_PASS | _ => {}
@@ -1469,7 +1465,7 @@ unsafe extern "C" fn cmd_char2(c: char, stay_in_completion: bool) -> i32 {
     /*
      * Insert the char into the command buffer.
      */
-    return cmd_ichar(cmd_mbc_buf.as_mut_ptr(), len) as i32;
+    return cmd_ichar(std::slice::from_raw_parts(cmd_mbc_buf.as_ptr() as *const u8, len as usize)) as i32;
 }
 pub unsafe fn cmd_char(c: char) -> i32 {
     return cmd_char2(c, false);

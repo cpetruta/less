@@ -119,7 +119,7 @@ static mut allow_drag: bool = true;
 const MAX_USERCMD: u32 = 1000;
 const MAX_CMDLEN: usize = 16;
 
-#[derive(Copy, PartialEq)]
+#[derive(Copy, Clone, PartialEq)]
 pub enum ActionType {
     Null,
     NoMca,
@@ -454,6 +454,18 @@ impl Tables {
             var_tables: Vec::new(),
             sysvar_tables: Vec::new(),
         }
+    }
+
+    /// Extract the NUL-terminated extra string from a fcmd_table entry.
+    /// `spi` is the byte offset and `t_idx` is the table index.
+    pub fn get_fcmd_extra_str(&self, spi: usize, t_idx: usize) -> &str {
+        if let Some(tbl) = self.fcmd_tables.get(t_idx) {
+            if let Some(bytes) = tbl.table.get(spi..) {
+                let nul = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
+                return std::str::from_utf8(&bytes[..nul]).unwrap_or("");
+            }
+        }
+        ""
     }
 }
 
@@ -1689,7 +1701,7 @@ pub unsafe extern "C" fn editchar(tables: &Tables, c: u8, flags: i32) -> ActionT
          * The caller says there is no history list.
          * Reject any history-manipulation action.
          */
-        match action u8 {
+        match action as u8 {
             EC_UP | EC_DOWN => {
                 action = ActionType::Invalid;
             }

@@ -517,7 +517,7 @@ unsafe fn main_0() -> i32 {
     set_output(1);
     init();
     let opts = get_options();
-    commands(&marks, &mut ungot, opts);
+    commands(&mut marks, &mut ifiles, &mut ungot, opts);
     quit(0);
     return 0;
 }

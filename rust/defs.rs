@@ -219,9 +219,19 @@ pub const ECF_NOCOMPLETE: i32 = 0o4;
 pub const ECF_NORIGHTLEFT: i32 = 0o10;
 
 /// Search for subpattern
-pub fn SRCH_SUBSEARCH(i: i32) -> i32 {
+pub const fn SRCH_SUBSEARCH(i: i32) -> i32 {
     1 << (17 + i)
 }
+
+pub const SRCH_SUBSEARCH_ALL: i32 = {
+    let mut v: i32 = 0;
+    let mut i = 1;
+    while i <= NUM_SEARCH_COLORS {
+        v |= SRCH_SUBSEARCH(i);
+        i += 1;
+    }
+    v
+};
 
 /* Flag to toggle_option to specify how to "toggle" */
 pub const OPT_NO_TOGGLE: i32 = 0;
