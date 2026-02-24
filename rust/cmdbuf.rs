@@ -92,10 +92,11 @@ pub struct save_ctx {
 }
 #[no_mangle]
 pub static mut pasting: lbool = LFALSE;
-static mut cmdbuf: [c_char; 2048] = [0; 2048]; /* Buffer for holding a multi-char command */
+const CMDBUF_SIZE: usize = 2048;
+static mut cmdbuf: [u8; CMDBUF_SIZE] = [0; CMDBUF_SIZE]; /* Buffer for holding a multi-char command */
 static mut cmd_col: i32 = 0; /* Current column of the cursor */
 static mut prompt_col: i32 = 0; /* Column of cursor just after prompt */
-static mut cp: *mut c_char = 0 as *const c_char as *mut c_char; /* Pointer into cmdbuf */
+static mut cp: usize = 0; /* Index into cmdbuf of cursor position */
 static mut cmd_offset: i32 = 0; /* Index into cmdbuf of first displayed char */
 static mut literal: lbool = LFALSE; /* Next input char should not be interpreted */
 static mut updown_match: size_t = 0; /* Prefix length in up/down movement */
@@ -106,7 +107,7 @@ static mut have_updown_match: lbool = LFALSE;
 static mut in_completion: lbool = LFALSE;
 static mut tk_text: *mut c_char = 0 as *const c_char as *mut c_char;
 static mut tk_original: *mut c_char = 0 as *const c_char as *mut c_char;
-static mut tk_ipoint: *const c_char = 0 as *const c_char;
+static mut tk_ipoint: usize = 0;
 static mut tk_trial: *const c_char = 0 as *const c_char;
 static mut tk_tlist: textlist = textlist {
     string: 0 as *const c_char as *mut c_char,
@@ -180,8 +181,8 @@ static mut cmd_mbc_buf_index: i32 = 0;
  * Reset command buffer (to empty).
  */
 pub unsafe fn cmd_reset() {
-    cp = cmdbuf.as_mut_ptr();
-    *cp = '\0' as i32 as c_char;
+    cp = 0;
+    cmdbuf[0] = 0;
     cmd_col = 0 as i32;
     cmd_offset = 0 as i32;
     literal = LFALSE;
@@ -234,7 +235,7 @@ pub unsafe fn cmd_putstr(s: &CStr) {
  * How many characters are in the command buffer?
  */
 pub unsafe fn len_cmdbuf() -> i32 {
-    let mut s: *const c_char = cmdbuf.as_mut_ptr();
+    let mut s: *const c_char = cmdbuf.as_ptr() as *const c_char;
     let mut endline: *const c_char = s.add(cmdbuf.iter().position(|&c| c == 0).unwrap_or(0));
     let mut len: i32 = 0 as i32;
     while *s as i32 != '\0' as i32 {
@@ -249,7 +250,7 @@ pub unsafe fn len_cmdbuf() -> i32 {
  * or if a multibyte command is being entered but not yet complete.
  */
 pub unsafe fn cmdbuf_empty() -> bool {
-    cp == cmdbuf.as_mut_ptr() && cmd_mbc_buf_len == 0
+    cp == 0 && cmd_mbc_buf_len == 0
 }
 /*
  * Common part of cmd_step_right() and cmd_step_left().
@@ -275,7 +276,7 @@ unsafe fn cmd_step_common(
         } else if is_ubin_char(ch) as u64 != 0 {
             width = CStr::from_ptr(pr).to_bytes().len() as i32;
         } else {
-            let mut prev_ch: LWCHAR = step_char(&mut p, -(1 as i32), cmdbuf.as_mut_ptr());
+            let mut prev_ch: LWCHAR = step_char(&mut p, -(1 as i32), cmdbuf.as_mut_ptr() as *mut c_char);
             if is_combining_char(prev_ch, ch) as u64 != 0 {
                 width = 0 as i32;
             } else {
@@ -322,7 +323,7 @@ unsafe fn cmd_step_left(
     mut bswidth: *mut i32,
 ) -> *const c_char {
     let mut p: *mut c_char = *pp;
-    let mut ch: LWCHAR = step_char(pp, -(1 as i32), cmdbuf.as_mut_ptr());
+    let mut ch: LWCHAR = step_char(pp, -(1 as i32), cmdbuf.as_mut_ptr() as *mut c_char);
     return cmd_step_common(
         *pp,
         ch,
@@ -336,10 +337,13 @@ unsafe fn cmd_step_left(
  * and set cp to the corresponding char in cmdbuf.
  */
 unsafe fn cmd_home() {
+    let base = cmdbuf.as_mut_ptr() as *mut c_char;
     while cmd_col > prompt_col {
         let mut width: i32 = 0;
         let mut bswidth: i32 = 0;
-        cmd_step_left(&mut cp, &mut width, &mut bswidth);
+        let mut raw_cp = base.add(cp);
+        cmd_step_left(&mut raw_cp, &mut width, &mut bswidth);
+        cp = raw_cp.offset_from(base) as usize;
         loop {
             let fresh1 = bswidth;
             bswidth = bswidth - 1;
@@ -350,7 +354,7 @@ unsafe fn cmd_home() {
         }
         cmd_col -= width;
     }
-    cp = &mut *cmdbuf.as_mut_ptr().offset(cmd_offset as isize) as *mut c_char;
+    cp = cmd_offset as usize;
 }
 /*
  * Repaint the line from cp onwards.
@@ -360,35 +364,36 @@ pub unsafe fn cmd_repaint(old_cp: Option<usize>) {
     /*
      * Repaint the line from the current position.
      */
-    let old_cp: *mut c_char = match old_cp {
+    let old_cp: usize = match old_cp {
         None => {
             let p = cp;
             cmd_home();
             p
         }
-        Some(offset) => cmdbuf.as_mut_ptr().add(offset),
+        Some(offset) => offset,
     };
+    let base = cmdbuf.as_mut_ptr() as *mut c_char;
     clear_eol();
-    while *cp as i32 != '\0' as i32 {
-        let mut np: *mut c_char = cp;
+    while cmdbuf[cp] != 0 {
+        let mut np = base.add(cp);
         let mut width: i32 = 0;
-        let mut pr: *const c_char = cmd_step_right(&mut np, &mut width, 0 as *mut i32);
+        let pr = cmd_step_right(&mut np, &mut width, std::ptr::null_mut());
         if cmd_col + width >= sc_width {
             break;
         }
-        cp = np;
+        cp = np.offset_from(base) as usize;
         putstr(pr);
         cmd_col += width;
     }
-    while *cp as i32 != '\0' as i32 {
-        let mut np_0: *mut c_char = cp;
-        let mut width_0: i32 = 0;
-        let mut pr_0: *const c_char = cmd_step_right(&mut np_0, &mut width_0, 0 as *mut i32);
-        if width_0 > 0 as i32 {
+    while cmdbuf[cp] != 0 {
+        let mut np = base.add(cp);
+        let mut width: i32 = 0;
+        let pr = cmd_step_right(&mut np, &mut width, std::ptr::null_mut());
+        if width > 0 {
             break;
         }
-        cp = np_0;
-        putstr(pr_0);
+        cp = np.offset_from(base) as usize;
+        putstr(pr);
     }
     /*
      * Back up the cursor to the correct position.
@@ -401,95 +406,90 @@ pub unsafe fn cmd_repaint(old_cp: Option<usize>) {
  * Repaint the entire line, without moving the cursor.
  */
 unsafe fn cmd_repaint_curr() {
-    let save_offset = cp.offset_from(cmdbuf.as_ptr()) as usize;
+    let save_cp = cp;
     cmd_home();
-    cmd_repaint(Some(save_offset));
+    cmd_repaint(Some(save_cp));
 }
 /*
  * Shift the cmdbuf display left a half-screen.
  */
 unsafe fn cmd_lshift() {
-    let mut s: *mut c_char = 0 as *mut c_char;
-    let mut save_cp: *mut c_char = 0 as *mut c_char;
+    let base = cmdbuf.as_mut_ptr() as *mut c_char;
+    let mut s = base.add(cmd_offset as usize);
     let mut cols: i32 = 0;
     /*
      * Start at the first displayed char, count how far to the
      * right we'd have to move to reach the center of the screen.
      */
-    s = cmdbuf.as_mut_ptr().offset(cmd_offset as isize);
-    cols = 0 as i32;
-    while cols < (sc_width - prompt_col) / 2 as i32 && *s as i32 != '\0' as i32 {
+    while cols < (sc_width - prompt_col) / 2 as i32 && *s != 0 {
         let mut width: i32 = 0;
-        cmd_step_right(&mut s, &mut width, 0 as *mut i32);
+        cmd_step_right(&mut s, &mut width, std::ptr::null_mut());
         cols += width;
     }
-    while *s as i32 != '\0' as i32 {
-        let mut width_0: i32 = 0;
-        let mut ns: *mut c_char = s;
-        cmd_step_right(&mut ns, &mut width_0, 0 as *mut i32);
-        if width_0 > 0 as i32 {
+    while *s != 0 {
+        let mut width: i32 = 0;
+        let mut ns = s;
+        cmd_step_right(&mut ns, &mut width, std::ptr::null_mut());
+        if width > 0 {
             break;
         }
         s = ns;
     }
-    cmd_offset = s.offset_from(cmdbuf.as_mut_ptr()) as i64 as i32;
-    let save_offset = cp.offset_from(cmdbuf.as_ptr()) as usize;
+    cmd_offset = s.offset_from(base) as i32;
+    let save_cp = cp;
     cmd_home();
-    cmd_repaint(Some(save_offset));
+    cmd_repaint(Some(save_cp));
 }
 /*
  * Shift the cmdbuf display right a half-screen.
  */
 unsafe fn cmd_rshift() {
-    let mut s: *mut c_char = 0 as *mut c_char;
+    let base = cmdbuf.as_mut_ptr() as *mut c_char;
+    let mut s = base.add(cmd_offset as usize);
     let mut cols: i32 = 0;
     /*
      * Start at the first displayed char, count how far to the
      * left we'd have to move to traverse a half-screen width
      * of displayed characters.
      */
-    s = cmdbuf.as_mut_ptr().offset(cmd_offset as isize);
-    cols = 0 as i32;
-    while cols < (sc_width - prompt_col) / 2 as i32 && s > cmdbuf.as_mut_ptr() {
+    while cols < (sc_width - prompt_col) / 2 as i32 && s > base {
         let mut width: i32 = 0;
-        cmd_step_left(&mut s, &mut width, 0 as *mut i32);
+        cmd_step_left(&mut s, &mut width, std::ptr::null_mut());
         cols += width;
     }
-    cmd_offset = s.offset_from(cmdbuf.as_mut_ptr()) as i64 as i32;
-    let save_offset = cp.offset_from(cmdbuf.as_ptr()) as usize;
+    cmd_offset = s.offset_from(base) as i32;
+    let save_cp = cp;
     cmd_home();
-    cmd_repaint(Some(save_offset));
+    cmd_repaint(Some(save_cp));
 }
 /*
  * Move cursor right one character.
  */
 unsafe fn cmd_right() -> i32 {
-    let mut pr: *const c_char = 0 as *const c_char;
-    let mut ncp: *mut c_char = 0 as *mut c_char;
-    let mut width: i32 = 0;
-    if *cp as i32 == '\0' as i32 {
+    if cmdbuf[cp] == 0 {
         /* Already at the end of the line. */
         return CC_OK;
     }
-    ncp = cp;
-    pr = cmd_step_right(&mut ncp, &mut width, 0 as *mut i32);
+    let base = cmdbuf.as_mut_ptr() as *mut c_char;
+    let mut ncp = base.add(cp);
+    let mut width: i32 = 0;
+    let pr = cmd_step_right(&mut ncp, &mut width, std::ptr::null_mut());
     if cmd_col + width >= sc_width {
         cmd_lshift();
-    } else if cmd_col + width == sc_width - 1 as i32
-        && *cp.offset(1 as i32 as isize) as i32 != '\0' as i32
-    {
+    } else if cmd_col + width == sc_width - 1 as i32 && cmdbuf[cp + 1] != 0 {
         cmd_lshift();
     }
-    cp = ncp;
+    cp = ncp.offset_from(base) as usize;
     cmd_col += width;
     putstr(pr);
-    while *cp as i32 != '\0' as i32 {
-        pr = cmd_step_right(&mut ncp, &mut width, 0 as *mut i32);
-        if width > 0 as i32 {
+    while cmdbuf[cp] != 0 {
+        let mut ncp = base.add(cp);
+        let pr = cmd_step_right(&mut ncp, &mut width, std::ptr::null_mut());
+        if width > 0 {
             break;
         }
         putstr(pr);
-        cp = ncp;
+        cp = ncp.offset_from(base) as usize;
     }
     return CC_OK;
 }
@@ -497,29 +497,29 @@ unsafe fn cmd_right() -> i32 {
  * Move cursor left one character.
  */
 unsafe fn cmd_left() -> i32 {
-    let mut ncp: *mut c_char = 0 as *mut c_char;
-    let mut width: i32 = 0 as i32;
-    let mut bswidth: i32 = 0 as i32;
-    if cp <= cmdbuf.as_mut_ptr() {
+    let mut width: i32 = 0;
+    let mut bswidth: i32 = 0;
+    if cp == 0 {
         /* Already at the beginning of the line */
         return CC_OK;
     }
-    ncp = cp;
-    while ncp > cmdbuf.as_mut_ptr() {
+    let base = cmdbuf.as_mut_ptr() as *mut c_char;
+    let mut ncp = base.add(cp);
+    while ncp > base {
         cmd_step_left(&mut ncp, &mut width, &mut bswidth);
-        if width > 0 as i32 {
+        if width > 0 {
             break;
         }
     }
     if cmd_col < prompt_col + width {
         cmd_rshift();
     }
-    cp = ncp;
+    cp = ncp.offset_from(base) as usize;
     cmd_col -= width;
     loop {
         let fresh2 = bswidth;
         bswidth = bswidth - 1;
-        if !(fresh2 > 0 as i32) {
+        if !(fresh2 > 0) {
             break;
         }
         putbs();
@@ -531,39 +531,35 @@ unsafe fn cmd_left() -> i32 {
  * Insert a char into the command buffer, at the current position.
  */
 unsafe fn cmd_ichar(cs: &[u8]) -> i32 {
-    let mut s: *mut c_char = 0 as *mut c_char;
     let clen = cs.len();
     let cmdbuf_len = cmdbuf.iter().position(|&c| c == 0).unwrap_or(0);
-    if cmdbuf_len.wrapping_add(clen)
-        >= ::core::mem::size_of::<[c_char; 2048]>().wrapping_sub(1)
-    {
+    if cmdbuf_len.wrapping_add(clen) >= CMDBUF_SIZE - 1 {
         /* No room in the command buffer for another char. */
         bell();
         return CC_ERROR;
     }
-
     /*
      * Make room for the new character (shift the tail of the buffer right).
      */
-    s = cmdbuf.as_mut_ptr().add(cmdbuf_len);
-
+    let mut si = cmdbuf_len;
+    loop {
+        cmdbuf[si + clen] = cmdbuf[si];
+        if si == cp {
+            break;
+        }
+        si -= 1;
+    }
     /*
      * Insert the character into the buffer.
      */
-    while s >= cp {
-        *s.offset(clen as isize) = *s.offset(0 as i32 as isize);
-        s = s.offset(-1);
-    }
-    s = cp;
-    for &byte in cs {
-        *s = byte as c_char;
-        s = s.offset(1);
+    for (i, &byte) in cs.iter().enumerate() {
+        cmdbuf[cp + i] = byte;
     }
     /*
      * Reprint the tail of the line from the inserted char.
      */
     have_updown_match = LFALSE;
-    cmd_repaint(Some(cp.offset_from(cmdbuf.as_ptr()) as usize));
+    cmd_repaint(Some(cp));
     cmd_right();
     return CC_OK;
 }
@@ -573,9 +569,7 @@ unsafe fn cmd_ichar(cs: &[u8]) -> i32 {
  * Delete the char to the left of the cursor.
  */
 unsafe fn cmd_erase() -> i32 {
-    let mut s: *mut c_char = 0 as *mut c_char;
-    let mut clen: i32 = 0;
-    if cp == cmdbuf.as_mut_ptr() {
+    if cp == 0 {
         /*
          * Backspace past beginning of the buffer:
          * this usually means abort the command.
@@ -585,33 +579,30 @@ unsafe fn cmd_erase() -> i32 {
     /*
      * Move cursor left (to the char being erased).
      */
-    s = cp;
+    let old_cp = cp;
     cmd_left();
-    clen = s.offset_from(cp) as i64 as i32;
+    let clen = old_cp - cp;
     /*
      * Remove the char from the buffer (shift the buffer left).
      */
-    s = cp;
+    let mut si = cp;
     loop {
-        *s.offset(0 as i32 as isize) = *s.offset(clen as isize);
-        if *s.offset(0 as i32 as isize) as i32 == '\0' as i32 {
+        cmdbuf[si] = cmdbuf[si + clen];
+        if cmdbuf[si] == 0 {
             break;
         }
-        s = s.offset(1);
+        si += 1;
     }
     /*
      * Repaint the buffer after the erased char.
      */
     have_updown_match = LFALSE;
-    cmd_repaint(Some(cp.offset_from(cmdbuf.as_ptr()) as usize));
+    cmd_repaint(Some(cp));
     /*
      * We say that erasing the entire command string causes us
      * to abort the current command, if CF_QUIT_ON_ERASE is set.
      */
-    if curr_cmdflags & CF_QUIT_ON_ERASE != 0
-        && cp == cmdbuf.as_mut_ptr()
-        && *cp as i32 == '\0' as i32
-    {
+    if curr_cmdflags & CF_QUIT_ON_ERASE != 0 && cp == 0 && cmdbuf[0] == 0 {
         return CC_QUIT;
     }
     return CC_OK;
@@ -620,7 +611,7 @@ unsafe fn cmd_erase() -> i32 {
  * Delete the char under the cursor.
  */
 unsafe fn cmd_delete() -> i32 {
-    if *cp as i32 == '\0' as i32 {
+    if cmdbuf[cp] == 0 {
         /* At end of string; there is no char under the cursor. */
         return CC_OK;
     }
@@ -635,12 +626,12 @@ unsafe fn cmd_delete() -> i32 {
  * Delete the "word" to the left of the cursor.
  */
 unsafe fn cmd_werase() -> i32 {
-    if cp > cmdbuf.as_mut_ptr() && *cp.offset(-(1 as i32) as isize) as i32 == ' ' as i32 {
+    if cp > 0 && cmdbuf[cp - 1] == b' ' {
         /*
          * If the char left of cursor is a space,
          * erase all the spaces left of cursor (to the first non-space).
          */
-        while cp > cmdbuf.as_mut_ptr() && *cp.offset(-(1 as i32) as isize) as i32 == ' ' as i32 {
+        while cp > 0 && cmdbuf[cp - 1] == b' ' {
             cmd_erase();
         }
     } else {
@@ -648,7 +639,7 @@ unsafe fn cmd_werase() -> i32 {
          * If the char left of cursor is not a space,
          * erase all the nonspaces left of cursor (the whole "word").
          */
-        while cp > cmdbuf.as_mut_ptr() && *cp.offset(-(1 as i32) as isize) as i32 != ' ' as i32 {
+        while cp > 0 && cmdbuf[cp - 1] != b' ' {
             cmd_erase();
         }
     }
@@ -658,12 +649,12 @@ unsafe fn cmd_werase() -> i32 {
  * Delete the "word" under the cursor.
  */
 unsafe fn cmd_wdelete() -> i32 {
-    if *cp as i32 == ' ' as i32 {
+    if cmdbuf[cp] == b' ' {
         /*
          * If the char under the cursor is a space,
          * delete it and all the spaces right of cursor.
          */
-        while *cp as i32 == ' ' as i32 {
+        while cmdbuf[cp] == b' ' {
             cmd_delete();
         }
     } else {
@@ -671,7 +662,7 @@ unsafe fn cmd_wdelete() -> i32 {
          * If the char under the cursor is not a space,
          * delete it and all nonspaces right of cursor (the whole word).
          */
-        while *cp as i32 != ' ' as i32 && *cp as i32 != '\0' as i32 {
+        while cmdbuf[cp] != b' ' && cmdbuf[cp] != 0 {
             cmd_delete();
         }
     }
@@ -681,15 +672,15 @@ unsafe fn cmd_wdelete() -> i32 {
  * Delete all chars in the command buffer.
  */
 unsafe fn cmd_kill() -> i32 {
-    if cmdbuf[0 as i32 as usize] as i32 == '\0' as i32 {
+    if cmdbuf[0] == 0 {
         /* Buffer is already empty; abort the current command. */
         return CC_QUIT;
     }
-    cmd_offset = 0 as i32;
+    cmd_offset = 0;
     cmd_home();
-    *cp = '\0' as i32 as c_char;
+    cmdbuf[cp] = 0;
     have_updown_match = LFALSE;
-    cmd_repaint(Some(cp.offset_from(cmdbuf.as_ptr()) as usize));
+    cmd_repaint(Some(cp));
     /*
      * We say that erasing the entire command string causes us
      * to abort the current command, if CF_QUIT_ON_ERASE is set.
@@ -725,7 +716,7 @@ unsafe fn cmd_updown(mut action: i32) -> i32 {
         return CC_OK;
     }
     if have_updown_match as u64 == 0 {
-        updown_match = cp.offset_from(cmdbuf.as_mut_ptr()) as i64 as size_t;
+        updown_match = cp as size_t;
         have_updown_match = LTRUE;
     }
     /*
@@ -763,16 +754,12 @@ unsafe fn cmd_updown(mut action: i32) -> i32 {
             /* Copy sptr (including null terminator) into cmdbuf. */
             let src = CStr::from_ptr(sptr).to_bytes_with_nul();
             let copy_len = src.len().min(cmdbuf.len());
-            std::ptr::copy_nonoverlapping(
-                src.as_ptr(),
-                cmdbuf.as_mut_ptr() as *mut u8,
-                copy_len,
-            );
+            std::ptr::copy_nonoverlapping(src.as_ptr(), cmdbuf.as_mut_ptr(), copy_len);
             if copy_len == cmdbuf.len() {
                 cmdbuf[cmdbuf.len() - 1] = 0; /* ensure null termination */
             }
-            cp = cmdbuf.as_mut_ptr();
-            while *cp as i32 != '\0' as i32 {
+            cp = 0;
+            while cmdbuf[cp] != 0 {
                 cmd_right();
             }
             return CC_OK;
@@ -824,11 +811,7 @@ pub unsafe fn cmd_addhist(ml_head: &mut mlist, cmd: &CStr, modified: bool) {
         ml = ml_head.next;
         while (*ml).string.is_some() {
             next = (*ml).next;
-            if (*ml)
-                .string
-                .as_ref()
-                .map_or(false, |cs| cs.as_ref() == cmd)
-            {
+            if (*ml).string.as_ref().map_or(false, |cs| cs.as_ref() == cmd) {
                 ml_unlink(ml);
                 /* CString field is dropped automatically when Box is dropped. */
                 drop(Box::from_raw(ml));
@@ -841,12 +824,7 @@ pub unsafe fn cmd_addhist(ml_head: &mut mlist, cmd: &CStr, modified: bool) {
      * last command in the history.
      */
     ml = ml_head.prev;
-    if ml == ml_head as *mut mlist
-        || (*ml)
-            .string
-            .as_ref()
-            .map_or(true, |cs| cs.as_ref() != cmd)
-    {
+    if ml == ml_head as *mut mlist || (*ml).string.as_ref().map_or(true, |cs| cs.as_ref() != cmd) {
         /*
          * Did not find command in history.
          * Save the command and put it at the end of the history list.
@@ -879,7 +857,7 @@ pub unsafe fn cmd_accept() {
     if curr_mlist.is_null() || curr_mlist == ml_examine as *mut mlist {
         return;
     }
-    cmd_addhist(&mut *curr_mlist, CStr::from_ptr(cmdbuf.as_ptr()), true);
+    cmd_addhist(&mut *curr_mlist, CStr::from_ptr(cmdbuf.as_ptr() as *const c_char), true);
     (*curr_mlist).modified = LTRUE;
 }
 /*
@@ -946,10 +924,10 @@ unsafe fn cmd_edit(mut c: c_char, mut stay_in_completion: bool) -> i32 {
             if !stay_in_completion {
                 in_completion = LFALSE;
             }
-            while *cp as i32 != '\0' as i32 && *cp as i32 != ' ' as i32 {
+            while cmdbuf[cp] != 0 && cmdbuf[cp] != b' ' {
                 cmd_right();
             }
-            while *cp as i32 == ' ' as i32 {
+            while cmdbuf[cp] == b' ' {
                 cmd_right();
             }
             return CC_OK;
@@ -958,12 +936,10 @@ unsafe fn cmd_edit(mut c: c_char, mut stay_in_completion: bool) -> i32 {
             if !stay_in_completion {
                 in_completion = LFALSE;
             }
-            while cp > cmdbuf.as_mut_ptr() && *cp.offset(-(1 as i32) as isize) as i32 == ' ' as i32
-            {
+            while cp > 0 && cmdbuf[cp - 1] == b' ' {
                 cmd_left();
             }
-            while cp > cmdbuf.as_mut_ptr() && *cp.offset(-(1 as i32) as isize) as i32 != ' ' as i32
-            {
+            while cp > 0 && cmdbuf[cp - 1] != b' ' {
                 cmd_left();
             }
             return CC_OK;
@@ -974,14 +950,14 @@ unsafe fn cmd_edit(mut c: c_char, mut stay_in_completion: bool) -> i32 {
             }
             cmd_offset = 0 as i32;
             cmd_home();
-            cmd_repaint(Some(cp.offset_from(cmdbuf.as_ptr()) as usize));
+            cmd_repaint(Some(cp));
             return CC_OK;
         }
         EC_END => {
             if !stay_in_completion {
                 in_completion = LFALSE;
             }
-            while *cp as i32 != '\0' as i32 {
+            while cmdbuf[cp] != 0 {
                 cmd_right();
             }
             return CC_OK;
@@ -1070,16 +1046,16 @@ unsafe fn cmd_istr(mut str: *const c_char) -> i32 {
 /*
  * Set tk_original to word.
  */
-unsafe fn set_tk_original(mut word: *const c_char) {
+unsafe fn set_tk_original(word_idx: usize) {
     if !tk_original.is_null() {
         free(tk_original as *mut c_void);
     }
+    let copy_len = cp - word_idx;
     tk_original = ecalloc(
-        (cp.offset_from(word) as i64 as size_t).wrapping_add(1 as i32 as size_t),
+        (copy_len + 1) as size_t,
         ::core::mem::size_of::<c_char>() as u64,
     ) as *mut c_char;
-    let copy_len = cp.offset_from(word) as usize;
-    std::ptr::copy_nonoverlapping(word as *const u8, tk_original as *mut u8, copy_len);
+    std::ptr::copy_nonoverlapping(cmdbuf.as_ptr().add(word_idx), tk_original as *mut u8, copy_len);
 }
 /*
  * Find the beginning and end of the "current" word.
@@ -1097,15 +1073,17 @@ unsafe fn delimit_word() -> *mut c_char {
     /*
      * Move cursor to end of word.
      */
-    if *cp as i32 != ' ' as i32 && *cp as i32 != '\0' as i32 {
+    let base = cmdbuf.as_mut_ptr() as *mut c_char;
+    let cp_ptr = base.add(cp);
+    if cmdbuf[cp] != b' ' && cmdbuf[cp] != 0 {
         /*
          * Cursor is on a nonspace.
          * Move cursor right to the next space.
          */
-        while *cp as i32 != ' ' as i32 && *cp as i32 != '\0' as i32 {
+        while cmdbuf[cp] != b' ' && cmdbuf[cp] != 0 {
             cmd_right();
         }
-    } else if cp > cmdbuf.as_mut_ptr() && *cp.offset(-(1 as i32) as isize) as i32 != ' ' as i32 {
+    } else if cp > 0 && cmdbuf[cp - 1] != b' ' {
         /*
          * Cursor is on a space, and char to the left is a nonspace.
          * We're already at the end of the word.
@@ -1114,45 +1092,46 @@ unsafe fn delimit_word() -> *mut c_char {
     /*
      * Find the beginning of the word which the cursor is in.
      */
-    if cp == cmdbuf.as_mut_ptr() {
-        return 0 as *mut c_char;
+    if cp == 0 {
+        return std::ptr::null_mut();
     }
+    let cp_ptr = base.add(cp);
     /*
      * If we have an unbalanced quote (that is, an open quote
      * without a corresponding close quote), we return everything
      * from the open quote, including spaces.
      */
-    word = cmdbuf.as_mut_ptr();
-    while word < cp {
-        if *word as i32 != ' ' as i32 {
+    word = base;
+    while word < cp_ptr {
+        if *word != b' ' as c_char {
             break;
         }
-        word = word.offset(1);
+        word = word.add(1);
     }
-    if word >= cp {
-        return cp;
+    if word >= cp_ptr {
+        return cp_ptr;
     }
-    p = cmdbuf.as_mut_ptr();
-    while p < cp {
+    p = base;
+    while p < cp_ptr {
         if meta_quoted != 0 {
             meta_quoted = LFALSE as i32;
-        } else if esclen > 0 as i32 as size_t
-            && p.offset(esclen as isize) < cp
+        } else if esclen > 0 as size_t
+            && p.add(esclen as usize) < cp_ptr
             && std::slice::from_raw_parts(p as *const u8, esclen as usize)
                 == std::slice::from_raw_parts(esc as *const u8, esclen as usize)
         {
             meta_quoted = LTRUE as i32;
-            p = p.offset(esclen.wrapping_sub(1 as i32 as size_t) as isize);
+            p = p.add(esclen as usize - 1);
         } else if delim_quoted != 0 {
-            if *p as i32 == closequote as i32 {
+            if *p == closequote {
                 delim_quoted = LFALSE as i32;
             }
-        } else if *p as i32 == openquote as i32 {
+        } else if *p == openquote {
             delim_quoted = LTRUE as i32;
-        } else if *p as i32 == ' ' as i32 {
-            word = p.offset(1 as i32 as isize);
+        } else if *p == b' ' as c_char {
+            word = p.add(1);
         }
-        p = p.offset(1);
+        p = p.add(1);
     }
     return word;
 }
@@ -1163,7 +1142,6 @@ unsafe fn delimit_word() -> *mut c_char {
  */
 unsafe fn init_file_compl() {
     let mut word: *mut c_char = 0 as *mut c_char;
-    let mut c: c_char = 0;
     /*
      * Find the original (uncompleted) word in the command buffer.
      */
@@ -1175,15 +1153,16 @@ unsafe fn init_file_compl() {
      * Set the insertion point to the point in the command buffer
      * where the original (uncompleted) word now sits.
      */
-    tk_ipoint = word;
-    set_tk_original(word);
+    let word_idx = (word as *const u8).offset_from(cmdbuf.as_ptr()) as usize;
+    tk_ipoint = word_idx;
+    set_tk_original(word_idx);
     /*
      * Get the expanded filename.
      * This may result in a single filename, or
      * a blank-separated list of filenames.
      */
-    c = *cp;
-    *cp = '\0' as i32 as c_char;
+    let c = cmdbuf[cp];
+    cmdbuf[cp] = 0;
     if *word as i32 != openquote as i32 {
         tk_text = fcomplete(word);
     } else {
@@ -1195,15 +1174,15 @@ unsafe fn init_file_compl() {
             free(qword as *mut c_void);
         }
     }
-    *cp = c;
+    cmdbuf[cp] = c;
 }
 /*
  * Set things up to enter option completion mode.
  */
 unsafe fn init_opt_compl() {
-    tk_ipoint = cmdbuf.as_mut_ptr();
-    set_tk_original(cmdbuf.as_mut_ptr());
-    tk_text = findopts_name(cmdbuf.as_mut_ptr());
+    tk_ipoint = 0;
+    set_tk_original(0);
+    tk_text = findopts_name(cmdbuf.as_mut_ptr() as *mut c_char);
 }
 /*
  * Return the next word in the current completion list.
@@ -1267,7 +1246,7 @@ unsafe fn cmd_complete(mut action: i32) -> i32 {
     /*
      * Remove the original word, or the previous trial completion.
      */
-    while cp > tk_ipoint as *mut c_char {
+    while cp > tk_ipoint {
         cmd_erase();
     }
     if tk_trial.is_null() {
@@ -1287,7 +1266,7 @@ unsafe fn cmd_complete(mut action: i32) -> i32 {
         /*
          * If it is a directory, append a slash.
          */
-        if cp > cmdbuf.as_mut_ptr() && *cp.offset(-(1 as i32) as isize) as i32 == closequote as i32
+        if cp > 0 && cmdbuf[cp - 1] as i32 == closequote as i32
         {
             cmd_erase();
         }
@@ -1452,7 +1431,7 @@ pub unsafe fn cmd_int() -> (LINENUM, i64) {
     let mut n: LINENUM = 0 as i32 as LINENUM;
     let mut frac: i64 = 0;
     let mut err: lbool = LFALSE;
-    p = cmdbuf.as_mut_ptr();
+    p = cmdbuf.as_ptr() as *const c_char;
     while *p as i32 >= '0' as i32 && *p as i32 <= '9' as i32 {
         let (fresh6, fresh7) = n.overflowing_mul(10 as i32 as i64);
         *(&mut n as *mut LINENUM) = fresh6;
@@ -1484,7 +1463,7 @@ pub unsafe fn get_cmdbuf() -> Option<&'static CStr> {
         /* Don't return buffer containing an incomplete multibyte char. */
         return None;
     }
-    Some(CStr::from_ptr(cmdbuf.as_ptr()))
+    Some(CStr::from_ptr(cmdbuf.as_ptr() as *const c_char))
 }
 /*
  * Return the last (most recent) string in the current command history.
@@ -1668,11 +1647,7 @@ unsafe fn read_cmdhist(
         0 as *const c_char,
     ); /* signal end of file */
 }
-unsafe fn addhist_init(
-    mut uparam: *mut c_void,
-    mut ml: *mut mlist,
-    mut string: *const c_char,
-) {
+unsafe fn addhist_init(mut uparam: *mut c_void, mut ml: *mut mlist, mut string: *const c_char) {
     if !ml.is_null() {
         cmd_addhist(&mut *ml, CStr::from_ptr(string), false);
     } else if !string.is_null() {
