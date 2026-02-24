@@ -898,9 +898,9 @@ pub unsafe extern "C" fn edit_ifile(ifiles: &mut IFileManager, ifile: Option<IFi
                     .as_ptr(),
             );
             cmd_addhist(
-                ml_examine as *mut std::ffi::c_void as *mut mlist,
-                qfilename,
-                LTRUE,
+                &mut *(ml_examine as *mut std::ffi::c_void as *mut mlist),
+                CStr::from_ptr(qfilename),
+                true,
             );
             free(qfilename as *mut std::ffi::c_void);
         }

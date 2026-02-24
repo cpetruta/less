@@ -2141,10 +2141,8 @@ pub unsafe extern "C" fn osc8_jump() {
 unsafe extern "C" fn hist_pattern(mut search_type: std::ffi::c_int) -> std::ffi::c_int {
     let mut pattern: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
     set_mlist(ml_search, 0 as std::ffi::c_int);
-    pattern = cmd_lastpattern();
-    if pattern.is_null() {
-        return 0 as std::ffi::c_int;
-    }
+    let Some(pattern_cs) = cmd_lastpattern() else { return 0 };
+    pattern = pattern_cs.as_ptr();
     if set_pattern(&mut search_info, pattern, search_type, 1 as std::ffi::c_int)
         < 0 as std::ffi::c_int
     {

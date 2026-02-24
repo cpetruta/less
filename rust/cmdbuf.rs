@@ -238,7 +238,8 @@ pub unsafe fn clear_cmd() {
 /*
  * Display a string, usually as a prompt for input into the command buffer.
  */
-pub unsafe fn cmd_putstr(mut s: *const c_char) {
+pub unsafe fn cmd_putstr(s: &CStr) {
+    let mut s: *const c_char = s.as_ptr();
     let mut prev_ch: LWCHAR = 0 as i32 as LWCHAR;
     let mut ch: LWCHAR = 0;
     let mut endline: *const c_char = s.offset(strlen(s) as isize);
@@ -287,9 +288,8 @@ pub unsafe fn len_cmdbuf() -> i32 {
  * It is considered nonempty if there is any text in it,
  * or if a multibyte command is being entered but not yet complete.
  */
-pub unsafe fn cmdbuf_empty() -> lbool {
-    return (cp == cmdbuf.as_mut_ptr() && cmd_mbc_buf_len == 0 as i32) as i32
-        as lbool;
+pub unsafe fn cmdbuf_empty() -> bool {
+    cp == cmdbuf.as_mut_ptr() && cmd_mbc_buf_len == 0
 }
 /*
  * Common part of cmd_step_right() and cmd_step_left().
@@ -397,14 +397,18 @@ unsafe extern "C" fn cmd_home() {
  * Repaint the line from cp onwards.
  * Then position the cursor just after the char old_cp (a pointer into cmdbuf).
  */
-pub unsafe fn cmd_repaint(mut old_cp: *const c_char) {
+pub unsafe fn cmd_repaint(old_cp: Option<usize>) {
     /*
      * Repaint the line from the current position.
      */
-    if old_cp.is_null() {
-        old_cp = cp;
-        cmd_home();
-    }
+    let old_cp: *mut c_char = match old_cp {
+        None => {
+            let p = cp;
+            cmd_home();
+            p
+        }
+        Some(offset) => cmdbuf.as_mut_ptr().add(offset),
+    };
     clear_eol();
     while *cp as i32 != '\0' as i32 {
         let mut np: *mut c_char = cp;
@@ -432,7 +436,7 @@ pub unsafe fn cmd_repaint(mut old_cp: *const c_char) {
     /*
      * Back up the cursor to the correct position.
      */
-    while cp > old_cp as *mut c_char {
+    while cp > old_cp {
         cmd_left();
     }
 }
@@ -440,9 +444,9 @@ pub unsafe fn cmd_repaint(mut old_cp: *const c_char) {
  * Repaint the entire line, without moving the cursor.
  */
 unsafe extern "C" fn cmd_repaint_curr() {
-    let mut save_cp: *mut c_char = cp;
+    let save_offset = cp.offset_from(cmdbuf.as_ptr()) as usize;
     cmd_home();
-    cmd_repaint(save_cp);
+    cmd_repaint(Some(save_offset));
 }
 /*
  * Shift the cmdbuf display left a half-screen.
@@ -474,16 +478,15 @@ unsafe extern "C" fn cmd_lshift() {
         s = ns;
     }
     cmd_offset = s.offset_from(cmdbuf.as_mut_ptr()) as i64 as i32;
-    save_cp = cp;
+    let save_offset = cp.offset_from(cmdbuf.as_ptr()) as usize;
     cmd_home();
-    cmd_repaint(save_cp);
+    cmd_repaint(Some(save_offset));
 }
 /*
  * Shift the cmdbuf display right a half-screen.
  */
 unsafe extern "C" fn cmd_rshift() {
     let mut s: *mut c_char = 0 as *mut c_char;
-    let mut save_cp: *mut c_char = 0 as *mut c_char;
     let mut cols: i32 = 0;
     /*
      * Start at the first displayed char, count how far to the
@@ -498,9 +501,9 @@ unsafe extern "C" fn cmd_rshift() {
         cols += width;
     }
     cmd_offset = s.offset_from(cmdbuf.as_mut_ptr()) as i64 as i32;
-    save_cp = cp;
+    let save_offset = cp.offset_from(cmdbuf.as_ptr()) as usize;
     cmd_home();
-    cmd_repaint(save_cp);
+    cmd_repaint(Some(save_offset));
 }
 /*
  * Move cursor right one character.
@@ -609,7 +612,7 @@ unsafe extern "C" fn cmd_ichar(cs: &str, clen: usize) -> i32 {
      * Reprint the tail of the line from the inserted char.
      */
     have_updown_match = LFALSE;
-    cmd_repaint(cp);
+    cmd_repaint(Some(cp.offset_from(cmdbuf.as_ptr()) as usize));
     cmd_right();
     return CC_OK;
 }
@@ -649,7 +652,7 @@ unsafe extern "C" fn cmd_erase() -> i32 {
      * Repaint the buffer after the erased char.
      */
     have_updown_match = LFALSE;
-    cmd_repaint(cp);
+    cmd_repaint(Some(cp.offset_from(cmdbuf.as_ptr()) as usize));
     /*
      * We say that erasing the entire command string causes us
      * to abort the current command, if CF_QUIT_ON_ERASE is set.
@@ -741,7 +744,7 @@ unsafe extern "C" fn cmd_kill() -> i32 {
     cmd_home();
     *cp = '\0' as i32 as c_char;
     have_updown_match = LFALSE;
-    cmd_repaint(cp);
+    cmd_repaint(Some(cp.offset_from(cmdbuf.as_ptr()) as usize));
     /*
      * We say that erasing the entire command string causes us
      * to abort the current command, if CF_QUIT_ON_ERASE is set.
@@ -851,24 +854,24 @@ unsafe extern "C" fn ml_unlink(mut ml: *mut mlist) {
  * Add a string to an mlist.
  */
 pub unsafe fn cmd_addhist(
-    mut mlist: *mut mlist,
-    mut cmd: *const c_char,
-    mut modified: lbool,
+    ml_head: &mut mlist,
+    cmd: &CStr,
+    modified: bool,
 ) {
     let mut ml: *mut mlist = 0 as *mut mlist;
     /*
      * Don't save a trivial command.
      */
-    if strlen(cmd) == 0 as i32 as u64 {
+    if cmd.to_bytes().is_empty() {
         return;
     }
     let opts = get_options();
     if opts.no_hist_dups != 0 {
         let mut next: *mut mlist = 0 as *mut mlist;
-        ml = (*mlist).next;
+        ml = ml_head.next;
         while (*ml).string.is_some() {
             next = (*ml).next;
-            if (*ml).string.as_ref().map_or(false, |cs| strcmp(cs.as_ptr(), cmd) == 0) {
+            if (*ml).string.as_ref().map_or(false, |cs| strcmp(cs.as_ptr(), cmd.as_ptr()) == 0) {
                 ml_unlink(ml);
                 /* CString field is dropped automatically when Box is dropped. */
                 drop(Box::from_raw(ml));
@@ -880,9 +883,9 @@ pub unsafe fn cmd_addhist(
      * Save the command unless it's a duplicate of the
      * last command in the history.
      */
-    ml = (*mlist).prev;
-    if ml == mlist
-        || (*ml).string.as_ref().map_or(true, |cs| strcmp(cs.as_ptr(), cmd) != 0)
+    ml = ml_head.prev;
+    if ml == ml_head as *mut mlist
+        || (*ml).string.as_ref().map_or(true, |cs| strcmp(cs.as_ptr(), cmd.as_ptr()) != 0)
     {
         /*
          * Did not find command in history.
@@ -895,15 +898,15 @@ pub unsafe fn cmd_addhist(
             string: None,
             modified: LFALSE,
         }));
-        (*ml).string = Some(CString::from(CStr::from_ptr(cmd)));
-        (*ml).modified = modified;
-        ml_link(mlist, ml);
+        (*ml).string = Some(CString::from(cmd));
+        (*ml).modified = modified as lbool;
+        ml_link(ml_head as *mut mlist, ml);
     }
     /*
      * Point to the cmd just after the just-accepted command.
      * Thus, an UPARROW will always retrieve the previous command.
      */
-    (*mlist).curr_mp = (*ml).next;
+    ml_head.curr_mp = (*ml).next;
 }
 /*
  * Accept the command in the command buffer.
@@ -916,7 +919,7 @@ pub unsafe fn cmd_accept() {
     if curr_mlist.is_null() || curr_mlist == ml_examine as *mut mlist {
         return;
     }
-    cmd_addhist(curr_mlist, cmdbuf.as_mut_ptr(), LTRUE);
+    cmd_addhist(&mut *curr_mlist, CStr::from_ptr(cmdbuf.as_ptr()), true);
     (*curr_mlist).modified = LTRUE;
 }
 /*
@@ -1017,7 +1020,7 @@ unsafe extern "C" fn cmd_edit(
             }
             cmd_offset = 0 as i32;
             cmd_home();
-            cmd_repaint(cp);
+            cmd_repaint(Some(cp.offset_from(cmdbuf.as_ptr()) as usize));
             return CC_OK;
         }
         EC_END => {
@@ -1494,9 +1497,10 @@ pub unsafe fn cmd_setstring(s: &str, uc: bool) -> i32 {
 /*
  * Return the number currently in the command buffer.
  */
-pub unsafe fn cmd_int(mut frac: *mut i64) -> LINENUM {
+pub unsafe fn cmd_int() -> (LINENUM, i64) {
     let mut p: *const c_char = 0 as *const c_char;
     let mut n: LINENUM = 0 as i32 as LINENUM;
+    let mut frac: i64 = 0;
     let mut err: lbool = LFALSE;
     p = cmdbuf.as_mut_ptr();
     while *p as i32 >= '0' as i32 && *p as i32 <= '9' as i32 {
@@ -1511,38 +1515,35 @@ pub unsafe fn cmd_int(mut frac: *mut i64) -> LINENUM {
                 b"Integer is too big\0" as *const u8 as *const c_char,
                 0 as *mut c_void as *mut PARG,
             );
-            return 0 as i32 as LINENUM;
+            return (0 as i32 as LINENUM, 0);
         }
         p = p.offset(1);
     }
-    *frac = 0 as i32 as i64;
     let fresh10 = p;
     p = p.offset(1);
     if *fresh10 as i32 == '.' as i32 {
-        *frac = getfraction(&mut p, 0 as *const c_char, &mut err);
+        frac = getfraction(&mut p, 0 as *const c_char, &mut err);
     }
-    return n;
+    (n, frac)
 }
 /*
  * Return a pointer to the command buffer.
  */
-pub unsafe fn get_cmdbuf() -> *const c_char {
+pub unsafe fn get_cmdbuf() -> Option<&'static CStr> {
     if cmd_mbc_buf_index < cmd_mbc_buf_len {
         /* Don't return buffer containing an incomplete multibyte char. */
-        return 0 as *const c_char;
+        return None;
     }
-    return cmdbuf.as_mut_ptr();
+    Some(CStr::from_ptr(cmdbuf.as_ptr()))
 }
 /*
  * Return the last (most recent) string in the current command history.
  */
-pub unsafe fn cmd_lastpattern() -> *const c_char {
+pub unsafe fn cmd_lastpattern() -> Option<&'static CStr> {
     if curr_mlist.is_null() {
-        return 0 as *const c_char;
+        return None;
     }
-    return (*(*(*curr_mlist).curr_mp).prev).string
-        .as_ref()
-        .map_or(std::ptr::null(), |cs| cs.as_ptr());
+    (*(*(*curr_mlist).curr_mp).prev).string.as_deref()
 }
 unsafe extern "C" fn mlist_size(mut ml: *mut mlist) -> i32 {
     let mut size: i32 = 0 as i32;
@@ -1717,7 +1718,7 @@ unsafe extern "C" fn addhist_init(
     mut string: *const c_char,
 ) {
     if !ml.is_null() {
-        cmd_addhist(ml, string, LFALSE);
+        cmd_addhist(&mut *ml, CStr::from_ptr(string), false);
     } else if !string.is_null() {
         restore_mark(string);
     }

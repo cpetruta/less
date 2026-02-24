@@ -239,7 +239,7 @@ unsafe extern "C" fn start_mca(
     mut cmdflags: std::ffi::c_int,
 ) {
     set_mca(action);
-    cmd_putstr(prompt_0);
+    cmd_putstr(CStr::from_ptr(prompt_0));
     set_mlist(mlist, cmdflags);
 }
 #[no_mangle]
@@ -258,22 +258,22 @@ unsafe extern "C" fn mca_search1() {
         set_mca(ActionType::BSearch);
     }
     if search_type & SRCH_NO_MATCH != 0 {
-        cmd_putstr(b"Non-match \0" as *const u8 as *const std::ffi::c_char);
+        cmd_putstr(c"Non-match ");
     }
     if search_type & SRCH_FIRST_FILE != 0 {
-        cmd_putstr(b"First-file \0" as *const u8 as *const std::ffi::c_char);
+        cmd_putstr(c"First-file ");
     }
     if search_type & SRCH_PAST_EOF != 0 {
-        cmd_putstr(b"EOF-ignore \0" as *const u8 as *const std::ffi::c_char);
+        cmd_putstr(c"EOF-ignore ");
     }
     if search_type & SRCH_NO_MOVE != 0 {
-        cmd_putstr(b"Keep-pos \0" as *const u8 as *const std::ffi::c_char);
+        cmd_putstr(c"Keep-pos ");
     }
     if search_type & SRCH_NO_REGEX != 0 {
-        cmd_putstr(b"Regex-off \0" as *const u8 as *const std::ffi::c_char);
+        cmd_putstr(c"Regex-off ");
     }
     if search_type & SRCH_WRAP != 0 {
-        cmd_putstr(b"Wrap \0" as *const u8 as *const std::ffi::c_char);
+        cmd_putstr(c"Wrap ");
     }
     i = 1 as std::ffi::c_int;
     for i in 1..=NUM_SEARCH_COLORS {
@@ -285,18 +285,18 @@ unsafe extern "C" fn mca_search1() {
                 b"Sub-%d \0" as *const u8 as *const std::ffi::c_char,
                 i,
             );
-            cmd_putstr(buf.as_mut_ptr());
+            cmd_putstr(CStr::from_ptr(buf.as_ptr()));
         }
     }
     if literal_char {
-        cmd_putstr(b"Lit \0" as *const u8 as *const std::ffi::c_char);
+        cmd_putstr(c"Lit ");
     }
     if search_type & SRCH_FILTER != 0 {
-        cmd_putstr(b"&/\0" as *const u8 as *const std::ffi::c_char);
+        cmd_putstr(c"&/");
     } else if search_type & SRCH_FORW != 0 {
-        cmd_putstr(b"/\0" as *const u8 as *const std::ffi::c_char);
+        cmd_putstr(c"/");
     } else {
-        cmd_putstr(b"?\0" as *const u8 as *const std::ffi::c_char);
+        cmd_putstr(c"?");
     }
     forw_prompt = 0 as std::ffi::c_int;
 }
@@ -318,19 +318,19 @@ unsafe extern "C" fn mca_opt_toggle() {
         b"-\0" as *const u8 as *const std::ffi::c_char
     };
     set_mca(ActionType::OptToggle);
-    cmd_putstr(dash);
+    cmd_putstr(CStr::from_ptr(dash));
     if optgetname as u64 != 0 {
-        cmd_putstr(dash);
+        cmd_putstr(CStr::from_ptr(dash));
     }
     if no_prompt != 0 {
-        cmd_putstr(b"(P)\0" as *const u8 as *const std::ffi::c_char);
+        cmd_putstr(c"(P)");
     }
     match flag {
         2 => {
-            cmd_putstr(b"+\0" as *const u8 as *const std::ffi::c_char);
+            cmd_putstr(c"+");
         }
         3 => {
-            cmd_putstr(b"!\0" as *const u8 as *const std::ffi::c_char);
+            cmd_putstr(c"!");
         }
         _ => {}
     }
@@ -343,12 +343,9 @@ unsafe extern "C" fn mca_opt_toggle() {
 
 /// Execute a multicharacter command.
 unsafe extern "C" fn exec_mca() {
-    let mut cbuf: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
     cmd_exec();
-    cbuf = get_cmdbuf();
-    if cbuf.is_null() {
-        return;
-    }
+    let Some(cbuf_cs) = get_cmdbuf() else { return };
+    let mut cbuf: *const std::ffi::c_char = cbuf_cs.as_ptr();
     match mca {
         ActionType::FSearch | ActionType::BSearch => {
             multi_search(cbuf, number as std::ffi::c_int, 0 as std::ffi::c_int);
@@ -536,7 +533,6 @@ unsafe extern "C" fn mca_opt_first_char(c: char) -> ActionType {
  * accepting chars until user hits RETURN.
  */
 unsafe extern "C" fn mca_opt_nonfirst_char(c: char) -> ActionType {
-    let mut p: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
     let mut oname: *const std::ffi::c_char = 0 as *const std::ffi::c_char;
     let mut ambig: bool = false;
     let mut was_curropt: Option<LOption> = None;
@@ -560,10 +556,11 @@ unsafe extern "C" fn mca_opt_nonfirst_char(c: char) -> ActionType {
     if cmd_char(c) == CC_QUIT {
         return ActionType::McaDone;
     }
-    p = get_cmdbuf();
+    let Some(p_cs) = get_cmdbuf() else { return ActionType::McaMore };
+    let mut p = p_cs.as_ptr();
     let slice = std::slice::from_raw_parts(p as *const u8, strlen(p) as usize);
     let cmd_b = String::from_utf8_lossy(slice).into_owned();
-    if p.is_null() || cmd_b.len() == 0 {
+    if cmd_b.len() == 0 {
         return ActionType::McaMore;
     }
     let first: char = cmd_b.chars().nth(0).unwrap();
@@ -600,7 +597,7 @@ unsafe extern "C" fn mca_opt_char(c: char) -> ActionType {
      * or one char of a long option name,
      * or one char of the option parameter.
      */
-    if curropt.is_none() && cmdbuf_empty() as std::ffi::c_uint != 0 {
+    if curropt.is_none() && cmdbuf_empty() {
         let mut ret = mca_opt_first_char(c);
         if ret != ActionType::NoMca {
             return ret;
@@ -612,10 +609,8 @@ unsafe extern "C" fn mca_opt_char(c: char) -> ActionType {
             return mca_opt_nonfirst_char(c);
         }
         if curropt.is_null() {
-            parg.p_string = get_cmdbuf();
-            if (parg.p_string).is_null() {
-                return ActionType::McaMore;
-            }
+            let Some(cbuf_cs) = get_cmdbuf() else { return ActionType::McaMore };
+            parg.p_string = cbuf_cs.as_ptr();
             error(
                 b"There is no --%s option\0" as *const u8 as *const std::ffi::c_char,
                 &mut parg,
@@ -695,7 +690,7 @@ unsafe extern "C" fn mca_search_char(ungot: &mut Ungot, c: char) -> ActionType {
      *      *  Toggle the PAST_EOF flag
      *      @  Toggle the FIRST_FILE flag
      */
-    if cmdbuf_empty() == 0 || literal_char {
+    if !cmdbuf_empty() || literal_char {
         literal_char = false;
         return ActionType::Null;
     }
@@ -792,7 +787,9 @@ unsafe extern "C" fn mca_char(ungot: &mut Ungot, c: char) -> ActionType {
                          * End the number and treat this char
                          * as a normal command character.
                          */
-                        number = cmd_int(&mut fraction);
+                        let (n, f) = cmd_int();
+                        number = n;
+                        fraction = f;
                         clear_mca();
                         cmd_accept();
                         return ActionType::NoMca;
@@ -865,10 +862,8 @@ unsafe extern "C" fn mca_char(ungot: &mut Ungot, c: char) -> ActionType {
                         | SRCH_WRAP
                         | SRCH_SUBSEARCH_ALL);
                 let mut save_updown = 0;
-                let mut pattern = get_cmdbuf();
-                if pattern.is_null() {
-                    return ActionType::McaMore;
-                }
+                let Some(pattern_cs) = get_cmdbuf() else { return ActionType::McaMore };
+                let mut pattern = pattern_cs.as_ptr();
                 /*
                  * Must save updown_match because mca_search
                  * reinits it. That breaks history scrolling.
@@ -904,7 +899,7 @@ unsafe extern "C" fn mca_char(ungot: &mut Ungot, c: char) -> ActionType {
                 }
                 mca_search1();
                 restore_updown_match(save_updown);
-                cmd_repaint(0 as *const std::ffi::c_char);
+                cmd_repaint(None);
             }
         }
         _ => {}
@@ -1465,19 +1460,18 @@ pub unsafe extern "C" fn commands(marks: &Marks, ungot: &mut Ungot, o: &Options)
                      * of the line, abort the command.
                      */
                     if cmd_char(c) == 1 as std::ffi::c_int
-                        || cmdbuf_empty() as std::ffi::c_uint != 0
+                        || cmdbuf_empty()
                     {
                         continue 's_39;
                     }
-                    cbuf = get_cmdbuf();
-                    if cbuf.is_null() {
+                    let Some(cbuf_cs) = get_cmdbuf() else {
                         c = getcc(ungot);
                         continue;
-                    } else {
-                        if let Some(tables) = get_tables_mut() {
-                            let cbuf = CStr::from_ptr(cbuf).to_bytes();
-                            action = fcmd_decode(&tables, cbuf, &mut extra);
-                        }
+                    };
+                    cbuf = cbuf_cs.as_ptr();
+                    if let Some(tables) = get_tables_mut() {
+                        let cbuf = CStr::from_ptr(cbuf).to_bytes();
+                        action = fcmd_decode(&tables, cbuf, &mut extra);
                     }
                 } else {
                     /*
