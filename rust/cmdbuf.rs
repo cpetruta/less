@@ -24,17 +24,9 @@ extern "C" {
     fn rename(__old: *const c_char, __new: *const c_char) -> i32;
     fn free(_: *mut c_void);
     fn strcpy(_: *mut c_char, _: *const c_char) -> *mut c_char;
-    fn strncpy(
-        _: *mut c_char,
-        _: *const c_char,
-        _: u64,
-    ) -> *mut c_char;
+    fn strncpy(_: *mut c_char, _: *const c_char, _: u64) -> *mut c_char;
     fn strcmp(_: *const c_char, _: *const c_char) -> i32;
-    fn strncmp(
-        _: *const c_char,
-        _: *const c_char,
-        _: u64,
-    ) -> i32;
+    fn strncmp(_: *const c_char, _: *const c_char, _: u64) -> i32;
     fn strlen(_: *const c_char) -> u64;
     fn save(s: *const c_char) -> *mut c_char;
     fn ecalloc(count: size_t, size: size_t) -> *mut c_void;
@@ -46,16 +38,8 @@ extern "C" {
     fn prutfchar(ch: LWCHAR) -> *const c_char;
     fn utf_len(ch: c_char) -> i32;
     fn is_utf8_well_formed(ss: *const c_char, slen: i32) -> lbool;
-    fn step_charc(
-        pp: *mut *const c_char,
-        dir: i32,
-        limit: *const c_char,
-    ) -> LWCHAR;
-    fn step_char(
-        pp: *mut *mut c_char,
-        dir: i32,
-        limit: *const c_char,
-    ) -> LWCHAR;
+    fn step_charc(pp: *mut *const c_char, dir: i32, limit: *const c_char) -> LWCHAR;
+    fn step_char(pp: *mut *mut c_char, dir: i32, limit: *const c_char) -> LWCHAR;
     fn is_composing_char(ch: LWCHAR) -> lbool;
     fn is_ubin_char(ch: LWCHAR) -> lbool;
     fn is_wide_char(ch: LWCHAR) -> lbool;
@@ -66,30 +50,16 @@ extern "C" {
     fn isnullenv(s: *const c_char) -> lbool;
     fn editchar(c: c_char, flags: i32) -> i32;
     fn init_textlist(tlist: *mut textlist, str: *mut c_char);
-    fn forw_textlist(
-        tlist: *mut textlist,
-        prev: *const c_char,
-    ) -> *const c_char;
-    fn back_textlist(
-        tlist: *mut textlist,
-        prev: *const c_char,
-    ) -> *const c_char;
+    fn forw_textlist(tlist: *mut textlist, prev: *const c_char) -> *const c_char;
+    fn back_textlist(tlist: *mut textlist, prev: *const c_char) -> *const c_char;
     fn get_meta_escape() -> *const c_char;
     fn shell_quote(s: *const c_char) -> *mut c_char;
-    fn dirfile(
-        dirname: *const c_char,
-        filename: *const c_char,
-        must_exist: i32,
-    ) -> *mut c_char;
+    fn dirfile(dirname: *const c_char, filename: *const c_char, must_exist: i32) -> *mut c_char;
     fn fcomplete(s: *const c_char) -> *mut c_char;
     fn is_dir(filename: *const c_char) -> lbool;
     fn save_marks(fout: *mut libc::FILE, hdr: *const c_char);
     fn restore_mark(line: *const c_char);
-    fn getfraction(
-        sp: *mut *const c_char,
-        printopt: *const c_char,
-        errp: *mut lbool,
-    ) -> i64;
+    fn getfraction(sp: *mut *const c_char, printopt: *const c_char, errp: *mut lbool) -> i64;
     fn findopts_name(pfx: *const c_char) -> *mut c_char;
     fn putchr(ch: i32) -> i32;
     fn putstr(s: *const c_char);
@@ -130,20 +100,19 @@ pub struct save_ctx {
 #[no_mangle]
 pub static mut pasting: lbool = LFALSE;
 static mut cmdbuf: [c_char; 2048] = [0; 2048]; /* Buffer for holding a multi-char command */
-static mut cmd_col: i32 = 0;                  /* Current column of the cursor */
-static mut prompt_col: i32 = 0;                /* Column of cursor just after prompt */
+static mut cmd_col: i32 = 0; /* Current column of the cursor */
+static mut prompt_col: i32 = 0; /* Column of cursor just after prompt */
 static mut cp: *mut c_char = 0 as *const c_char as *mut c_char; /* Pointer into cmdbuf */
-static mut cmd_offset: i32 = 0;                /* Index into cmdbuf of first displayed char */
-static mut literal: lbool = LFALSE;                        /* Next input char should not be interpreted */
-static mut updown_match: size_t = 0;                       /* Prefix length in up/down movement */
+static mut cmd_offset: i32 = 0; /* Index into cmdbuf of first displayed char */
+static mut literal: lbool = LFALSE; /* Next input char should not be interpreted */
+static mut updown_match: size_t = 0; /* Prefix length in up/down movement */
 static mut have_updown_match: lbool = LFALSE;
 /*
  * These variables are statics used by cmd_complete.
  */
 static mut in_completion: lbool = LFALSE;
 static mut tk_text: *mut c_char = 0 as *const c_char as *mut c_char;
-static mut tk_original: *mut c_char =
-    0 as *const c_char as *mut c_char;
+static mut tk_original: *mut c_char = 0 as *const c_char as *mut c_char;
 static mut tk_ipoint: *const c_char = 0 as *const c_char;
 static mut tk_trial: *const c_char = 0 as *const c_char;
 static mut tk_tlist: textlist = textlist {
@@ -254,9 +223,7 @@ pub unsafe fn cmd_putstr(s: &CStr) {
         }
         if utf_mode == 0 {
             width = 1 as i32;
-        } else if is_composing_char(ch) as u32 != 0
-            || is_combining_char(prev_ch, ch) as u32 != 0
-        {
+        } else if is_composing_char(ch) as u32 != 0 || is_combining_char(prev_ch, ch) as u32 != 0 {
             width = 0 as i32;
         } else {
             width = if is_wide_char(ch) as u32 != 0 {
@@ -296,7 +263,7 @@ pub unsafe fn cmdbuf_empty() -> bool {
  * {{ Returning pwidth and bswidth separately is a historical artifact
  *    since they're always the same. Maybe clean this up someday. }}
  */
-unsafe extern "C" fn cmd_step_common(
+unsafe fn cmd_step_common(
     mut p: *mut c_char,
     mut ch: LWCHAR,
     mut len: size_t,
@@ -315,8 +282,7 @@ unsafe extern "C" fn cmd_step_common(
         } else if is_ubin_char(ch) as u64 != 0 {
             width = strlen(pr) as i32;
         } else {
-            let mut prev_ch: LWCHAR =
-                step_char(&mut p, -(1 as i32), cmdbuf.as_mut_ptr());
+            let mut prev_ch: LWCHAR = step_char(&mut p, -(1 as i32), cmdbuf.as_mut_ptr());
             if is_combining_char(prev_ch, ch) as u64 != 0 {
                 width = 0 as i32;
             } else {
@@ -339,7 +305,7 @@ unsafe extern "C" fn cmd_step_common(
 /*
  * Step a pointer one character right in the command buffer.
  */
-unsafe extern "C" fn cmd_step_right(
+unsafe fn cmd_step_right(
     mut pp: *mut *mut c_char,
     mut pwidth: *mut i32,
     mut bswidth: *mut i32,
@@ -357,7 +323,7 @@ unsafe extern "C" fn cmd_step_right(
 /*
  * Step a pointer one character left in the command buffer.
  */
-unsafe extern "C" fn cmd_step_left(
+unsafe fn cmd_step_left(
     mut pp: *mut *mut c_char,
     mut pwidth: *mut i32,
     mut bswidth: *mut i32,
@@ -376,7 +342,7 @@ unsafe extern "C" fn cmd_step_left(
  * Put the cursor at "home" (just after the prompt),
  * and set cp to the corresponding char in cmdbuf.
  */
-unsafe extern "C" fn cmd_home() {
+unsafe fn cmd_home() {
     while cmd_col > prompt_col {
         let mut width: i32 = 0;
         let mut bswidth: i32 = 0;
@@ -413,8 +379,7 @@ pub unsafe fn cmd_repaint(old_cp: Option<usize>) {
     while *cp as i32 != '\0' as i32 {
         let mut np: *mut c_char = cp;
         let mut width: i32 = 0;
-        let mut pr: *const c_char =
-            cmd_step_right(&mut np, &mut width, 0 as *mut i32);
+        let mut pr: *const c_char = cmd_step_right(&mut np, &mut width, 0 as *mut i32);
         if cmd_col + width >= sc_width {
             break;
         }
@@ -425,8 +390,7 @@ pub unsafe fn cmd_repaint(old_cp: Option<usize>) {
     while *cp as i32 != '\0' as i32 {
         let mut np_0: *mut c_char = cp;
         let mut width_0: i32 = 0;
-        let mut pr_0: *const c_char =
-            cmd_step_right(&mut np_0, &mut width_0, 0 as *mut i32);
+        let mut pr_0: *const c_char = cmd_step_right(&mut np_0, &mut width_0, 0 as *mut i32);
         if width_0 > 0 as i32 {
             break;
         }
@@ -443,7 +407,7 @@ pub unsafe fn cmd_repaint(old_cp: Option<usize>) {
 /*
  * Repaint the entire line, without moving the cursor.
  */
-unsafe extern "C" fn cmd_repaint_curr() {
+unsafe fn cmd_repaint_curr() {
     let save_offset = cp.offset_from(cmdbuf.as_ptr()) as usize;
     cmd_home();
     cmd_repaint(Some(save_offset));
@@ -451,7 +415,7 @@ unsafe extern "C" fn cmd_repaint_curr() {
 /*
  * Shift the cmdbuf display left a half-screen.
  */
-unsafe extern "C" fn cmd_lshift() {
+unsafe fn cmd_lshift() {
     let mut s: *mut c_char = 0 as *mut c_char;
     let mut save_cp: *mut c_char = 0 as *mut c_char;
     let mut cols: i32 = 0;
@@ -461,9 +425,7 @@ unsafe extern "C" fn cmd_lshift() {
      */
     s = cmdbuf.as_mut_ptr().offset(cmd_offset as isize);
     cols = 0 as i32;
-    while cols < (sc_width - prompt_col) / 2 as i32
-        && *s as i32 != '\0' as i32
-    {
+    while cols < (sc_width - prompt_col) / 2 as i32 && *s as i32 != '\0' as i32 {
         let mut width: i32 = 0;
         cmd_step_right(&mut s, &mut width, 0 as *mut i32);
         cols += width;
@@ -485,7 +447,7 @@ unsafe extern "C" fn cmd_lshift() {
 /*
  * Shift the cmdbuf display right a half-screen.
  */
-unsafe extern "C" fn cmd_rshift() {
+unsafe fn cmd_rshift() {
     let mut s: *mut c_char = 0 as *mut c_char;
     let mut cols: i32 = 0;
     /*
@@ -508,7 +470,7 @@ unsafe extern "C" fn cmd_rshift() {
 /*
  * Move cursor right one character.
  */
-unsafe extern "C" fn cmd_right() -> i32 {
+unsafe fn cmd_right() -> i32 {
     let mut pr: *const c_char = 0 as *const c_char;
     let mut ncp: *mut c_char = 0 as *mut c_char;
     let mut width: i32 = 0;
@@ -541,7 +503,7 @@ unsafe extern "C" fn cmd_right() -> i32 {
 /*
  * Move cursor left one character.
  */
-unsafe extern "C" fn cmd_left() -> i32 {
+unsafe fn cmd_left() -> i32 {
     let mut ncp: *mut c_char = 0 as *mut c_char;
     let mut width: i32 = 0 as i32;
     let mut bswidth: i32 = 0 as i32;
@@ -575,7 +537,7 @@ unsafe extern "C" fn cmd_left() -> i32 {
 /*
  * Insert a char into the command buffer, at the current position.
  */
-unsafe extern "C" fn cmd_ichar(cs: &[u8]) -> i32 {
+unsafe fn cmd_ichar(cs: &[u8]) -> i32 {
     let mut s: *mut c_char = 0 as *mut c_char;
     let clen = cs.len();
     if (strlen(cmdbuf.as_mut_ptr()) as usize).wrapping_add(clen)
@@ -589,7 +551,9 @@ unsafe extern "C" fn cmd_ichar(cs: &[u8]) -> i32 {
     /*
      * Make room for the new character (shift the tail of the buffer right).
      */
-    s = cmdbuf.as_mut_ptr().offset(strlen(cmdbuf.as_mut_ptr()) as isize);
+    s = cmdbuf
+        .as_mut_ptr()
+        .offset(strlen(cmdbuf.as_mut_ptr()) as isize);
 
     /*
      * Insert the character into the buffer.
@@ -616,7 +580,7 @@ unsafe extern "C" fn cmd_ichar(cs: &[u8]) -> i32 {
  * Backspace in the command buffer.
  * Delete the char to the left of the cursor.
  */
-unsafe extern "C" fn cmd_erase() -> i32 {
+unsafe fn cmd_erase() -> i32 {
     let mut s: *mut c_char = 0 as *mut c_char;
     let mut clen: i32 = 0;
     if cp == cmdbuf.as_mut_ptr() {
@@ -663,7 +627,7 @@ unsafe extern "C" fn cmd_erase() -> i32 {
 /*
  * Delete the char under the cursor.
  */
-unsafe extern "C" fn cmd_delete() -> i32 {
+unsafe fn cmd_delete() -> i32 {
     if *cp as i32 == '\0' as i32 {
         /* At end of string; there is no char under the cursor. */
         return CC_OK;
@@ -678,17 +642,13 @@ unsafe extern "C" fn cmd_delete() -> i32 {
 /*
  * Delete the "word" to the left of the cursor.
  */
-unsafe extern "C" fn cmd_werase() -> i32 {
-    if cp > cmdbuf.as_mut_ptr()
-        && *cp.offset(-(1 as i32) as isize) as i32 == ' ' as i32
-    {
+unsafe fn cmd_werase() -> i32 {
+    if cp > cmdbuf.as_mut_ptr() && *cp.offset(-(1 as i32) as isize) as i32 == ' ' as i32 {
         /*
          * If the char left of cursor is a space,
          * erase all the spaces left of cursor (to the first non-space).
          */
-        while cp > cmdbuf.as_mut_ptr()
-            && *cp.offset(-(1 as i32) as isize) as i32 == ' ' as i32
-        {
+        while cp > cmdbuf.as_mut_ptr() && *cp.offset(-(1 as i32) as isize) as i32 == ' ' as i32 {
             cmd_erase();
         }
     } else {
@@ -696,9 +656,7 @@ unsafe extern "C" fn cmd_werase() -> i32 {
          * If the char left of cursor is not a space,
          * erase all the nonspaces left of cursor (the whole "word").
          */
-        while cp > cmdbuf.as_mut_ptr()
-            && *cp.offset(-(1 as i32) as isize) as i32 != ' ' as i32
-        {
+        while cp > cmdbuf.as_mut_ptr() && *cp.offset(-(1 as i32) as isize) as i32 != ' ' as i32 {
             cmd_erase();
         }
     }
@@ -707,7 +665,7 @@ unsafe extern "C" fn cmd_werase() -> i32 {
 /*
  * Delete the "word" under the cursor.
  */
-unsafe extern "C" fn cmd_wdelete() -> i32 {
+unsafe fn cmd_wdelete() -> i32 {
     if *cp as i32 == ' ' as i32 {
         /*
          * If the char under the cursor is a space,
@@ -730,7 +688,7 @@ unsafe extern "C" fn cmd_wdelete() -> i32 {
 /*
  * Delete all chars in the command buffer.
  */
-unsafe extern "C" fn cmd_kill() -> i32 {
+unsafe fn cmd_kill() -> i32 {
     if cmdbuf[0 as i32 as usize] as i32 == '\0' as i32 {
         /* Buffer is already empty; abort the current command. */
         return CC_QUIT;
@@ -752,10 +710,7 @@ unsafe extern "C" fn cmd_kill() -> i32 {
 /*
  * Select an mlist structure to be the current command history.
  */
-pub unsafe fn set_mlist(
-    mut mlist: *mut c_void,
-    mut cmdflags: i32,
-) {
+pub unsafe fn set_mlist(mut mlist: *mut c_void, mut cmdflags: i32) {
     curr_mlist = mlist as *mut mlist;
     curr_cmdflags = cmdflags;
     /* Make sure the next up-arrow moves to the last string in the mlist. */
@@ -768,7 +723,7 @@ pub unsafe fn set_mlist(
  * Only consider entries whose first updown_match chars are equal to
  * cmdbuf's corresponding chars.
  */
-unsafe extern "C" fn cmd_updown(mut action: i32) -> i32 {
+unsafe fn cmd_updown(mut action: i32) -> i32 {
     let mut ml: *mut mlist = 0 as *mut mlist;
     if curr_mlist.is_null() {
         /*
@@ -797,7 +752,9 @@ unsafe extern "C" fn cmd_updown(mut action: i32) -> i32 {
              */
             break;
         }
-        let sptr = (*ml).string.as_ref()
+        let sptr = (*ml)
+            .string
+            .as_ref()
             .map_or(b"\0".as_ptr() as *const c_char, |cs| cs.as_ptr());
         if strncmp(cmdbuf.as_mut_ptr(), sptr, updown_match) == 0 as i32 {
             /*
@@ -835,24 +792,20 @@ pub unsafe fn restore_updown_match(mut udm: ssize_t) {
     updown_match = udm as size_t;
     have_updown_match = (udm != -(1 as i32) as ssize_t) as i32 as lbool;
 }
-unsafe extern "C" fn ml_link(mut mlist: *mut mlist, mut ml: *mut mlist) {
+unsafe fn ml_link(mut mlist: *mut mlist, mut ml: *mut mlist) {
     (*ml).next = mlist;
     (*ml).prev = (*mlist).prev;
     (*(*mlist).prev).next = ml;
     (*mlist).prev = ml;
 }
-unsafe extern "C" fn ml_unlink(mut ml: *mut mlist) {
+unsafe fn ml_unlink(mut ml: *mut mlist) {
     (*(*ml).prev).next = (*ml).next;
     (*(*ml).next).prev = (*ml).prev;
 }
 /*
  * Add a string to an mlist.
  */
-pub unsafe fn cmd_addhist(
-    ml_head: &mut mlist,
-    cmd: &CStr,
-    modified: bool,
-) {
+pub unsafe fn cmd_addhist(ml_head: &mut mlist, cmd: &CStr, modified: bool) {
     let mut ml: *mut mlist = 0 as *mut mlist;
     /*
      * Don't save a trivial command.
@@ -866,7 +819,11 @@ pub unsafe fn cmd_addhist(
         ml = ml_head.next;
         while (*ml).string.is_some() {
             next = (*ml).next;
-            if (*ml).string.as_ref().map_or(false, |cs| strcmp(cs.as_ptr(), cmd.as_ptr()) == 0) {
+            if (*ml)
+                .string
+                .as_ref()
+                .map_or(false, |cs| strcmp(cs.as_ptr(), cmd.as_ptr()) == 0)
+            {
                 ml_unlink(ml);
                 /* CString field is dropped automatically when Box is dropped. */
                 drop(Box::from_raw(ml));
@@ -880,7 +837,10 @@ pub unsafe fn cmd_addhist(
      */
     ml = ml_head.prev;
     if ml == ml_head as *mut mlist
-        || (*ml).string.as_ref().map_or(true, |cs| strcmp(cs.as_ptr(), cmd.as_ptr()) != 0)
+        || (*ml)
+            .string
+            .as_ref()
+            .map_or(true, |cs| strcmp(cs.as_ptr(), cmd.as_ptr()) != 0)
     {
         /*
          * Did not find command in history.
@@ -925,10 +885,7 @@ pub unsafe fn cmd_accept() {
  *      CC_OK   Line edit function done.
  *      CC_QUIT The char requests the current command to be aborted.
  */
-unsafe extern "C" fn cmd_edit(
-    mut c: c_char,
-    mut stay_in_completion: bool,
-) -> i32 {
+unsafe fn cmd_edit(mut c: c_char, mut stay_in_completion: bool) -> i32 {
     let mut action: i32 = 0;
     let mut flags: i32 = 0;
     let opts = get_options();
@@ -946,8 +903,7 @@ unsafe extern "C" fn cmd_edit(
      * Don't accept completion cmds in contexts
      * such as search pattern, digits, etc.
      */
-    if !(curr_mlist.is_null()
-        && curr_cmdflags & CF_OPTION != 0
+    if !(curr_mlist.is_null() && curr_cmdflags & CF_OPTION != 0
         || curr_mlist == ml_examine as *mut mlist
         || curr_mlist == ml_shell as *mut mlist)
     {
@@ -997,13 +953,11 @@ unsafe extern "C" fn cmd_edit(
             if !stay_in_completion {
                 in_completion = LFALSE;
             }
-            while cp > cmdbuf.as_mut_ptr()
-                && *cp.offset(-(1 as i32) as isize) as i32 == ' ' as i32
+            while cp > cmdbuf.as_mut_ptr() && *cp.offset(-(1 as i32) as isize) as i32 == ' ' as i32
             {
                 cmd_left();
             }
-            while cp > cmdbuf.as_mut_ptr()
-                && *cp.offset(-(1 as i32) as isize) as i32 != ' ' as i32
+            while cp > cmdbuf.as_mut_ptr() && *cp.offset(-(1 as i32) as isize) as i32 != ' ' as i32
             {
                 cmd_left();
             }
@@ -1092,7 +1046,7 @@ unsafe extern "C" fn cmd_edit(
 /*
  * Insert a string into the command buffer, at the current position.
  */
-unsafe extern "C" fn cmd_istr(mut str: *const c_char) -> i32 {
+unsafe fn cmd_istr(mut str: *const c_char) -> i32 {
     let mut endline: *const c_char = str.offset(strlen(str) as isize);
     let mut s: *const c_char = 0 as *const c_char;
     let mut action: i32 = 0;
@@ -1111,20 +1065,15 @@ unsafe extern "C" fn cmd_istr(mut str: *const c_char) -> i32 {
 /*
  * Set tk_original to word.
  */
-unsafe extern "C" fn set_tk_original(mut word: *const c_char) {
+unsafe fn set_tk_original(mut word: *const c_char) {
     if !tk_original.is_null() {
         free(tk_original as *mut c_void);
     }
     tk_original = ecalloc(
-        (cp.offset_from(word) as i64 as size_t)
-            .wrapping_add(1 as i32 as size_t),
+        (cp.offset_from(word) as i64 as size_t).wrapping_add(1 as i32 as size_t),
         ::core::mem::size_of::<c_char>() as u64,
     ) as *mut c_char;
-    strncpy(
-        tk_original,
-        word,
-        cp.offset_from(word) as i64 as size_t,
-    );
+    strncpy(tk_original, word, cp.offset_from(word) as i64 as size_t);
 }
 /*
  * Find the beginning and end of the "current" word.
@@ -1132,7 +1081,7 @@ unsafe extern "C" fn set_tk_original(mut word: *const c_char) {
  * Return pointer to the beginning of the word and put the
  * cursor at the end of the word.
  */
-unsafe extern "C" fn delimit_word() -> *mut c_char {
+unsafe fn delimit_word() -> *mut c_char {
     let mut word: *mut c_char = 0 as *mut c_char;
     let mut p: *mut c_char = 0 as *mut c_char;
     let mut delim_quoted: i32 = LFALSE as i32;
@@ -1150,9 +1099,7 @@ unsafe extern "C" fn delimit_word() -> *mut c_char {
         while *cp as i32 != ' ' as i32 && *cp as i32 != '\0' as i32 {
             cmd_right();
         }
-    } else if cp > cmdbuf.as_mut_ptr()
-        && *cp.offset(-(1 as i32) as isize) as i32 != ' ' as i32
-    {
+    } else if cp > cmdbuf.as_mut_ptr() && *cp.offset(-(1 as i32) as isize) as i32 != ' ' as i32 {
         /*
          * Cursor is on a space, and char to the left is a nonspace.
          * We're already at the end of the word.
@@ -1207,7 +1154,7 @@ unsafe extern "C" fn delimit_word() -> *mut c_char {
  * Expand the word under the cursor into a list of filenames
  * which start with that word, and set tk_text to that list.
  */
-unsafe extern "C" fn init_file_compl() {
+unsafe fn init_file_compl() {
     let mut word: *mut c_char = 0 as *mut c_char;
     let mut c: c_char = 0;
     /*
@@ -1233,8 +1180,7 @@ unsafe extern "C" fn init_file_compl() {
     if *word as i32 != openquote as i32 {
         tk_text = fcomplete(word);
     } else {
-        let mut qword: *mut c_char =
-            shell_quote(word.offset(1 as i32 as isize));
+        let mut qword: *mut c_char = shell_quote(word.offset(1 as i32 as isize));
         if qword.is_null() {
             tk_text = fcomplete(word.offset(1 as i32 as isize));
         } else {
@@ -1247,7 +1193,7 @@ unsafe extern "C" fn init_file_compl() {
 /*
  * Set things up to enter option completion mode.
  */
-unsafe extern "C" fn init_opt_compl() {
+unsafe fn init_opt_compl() {
     tk_ipoint = cmdbuf.as_mut_ptr();
     set_tk_original(cmdbuf.as_mut_ptr());
     tk_text = findopts_name(cmdbuf.as_mut_ptr());
@@ -1255,10 +1201,7 @@ unsafe extern "C" fn init_opt_compl() {
 /*
  * Return the next word in the current completion list.
  */
-unsafe extern "C" fn next_compl(
-    mut action: i32,
-    mut prev: *const c_char,
-) -> *const c_char {
+unsafe fn next_compl(mut action: i32, mut prev: *const c_char) -> *const c_char {
     match action {
         EC_F_COMPLETE => return forw_textlist(&mut tk_tlist, prev),
         EC_B_COMPLETE => return back_textlist(&mut tk_tlist, prev),
@@ -1272,7 +1215,7 @@ unsafe extern "C" fn next_compl(
  * remembers whether this call is the first time (create the list),
  * or a subsequent time (step thru the list).
  */
-unsafe extern "C" fn cmd_complete(mut action: i32) -> i32 {
+unsafe fn cmd_complete(mut action: i32) -> i32 {
     let mut current_block: u64;
     let mut s: *const c_char = 0 as *const c_char;
     if in_completion as u64 == 0 || action == EC_EXPAND {
@@ -1337,9 +1280,7 @@ unsafe extern "C" fn cmd_complete(mut action: i32) -> i32 {
         /*
          * If it is a directory, append a slash.
          */
-        if cp > cmdbuf.as_mut_ptr()
-            && *cp.offset(-(1 as i32) as isize) as i32
-                == closequote as i32
+        if cp > cmdbuf.as_mut_ptr() && *cp.offset(-(1 as i32) as isize) as i32 == closequote as i32
         {
             cmd_erase();
         }
@@ -1376,7 +1317,7 @@ unsafe extern "C" fn cmd_complete(mut action: i32) -> i32 {
  *      CC_PASS  There is a complete UTF-8 sequence in cmd_mbc_buf.
  *               The length of the complete sequence is returned in *plen.
  */
-unsafe extern "C" fn cmd_uchar(mut c: c_char, mut plen: *mut size_t) -> i32 {
+unsafe fn cmd_uchar(mut c: c_char, mut plen: *mut size_t) -> i32 {
     if utf_mode == 0 {
         cmd_mbc_buf[0 as i32 as usize] = c;
         *plen = 1 as i32 as size_t;
@@ -1438,7 +1379,7 @@ unsafe extern "C" fn cmd_uchar(mut c: c_char, mut plen: *mut size_t) -> i32 {
  *      CC_QUIT         The char requests the command to be aborted.
  *      CC_ERROR        The char could not be accepted due to an error.
  */
-unsafe extern "C" fn cmd_char2(c: char, stay_in_completion: bool) -> i32 {
+unsafe fn cmd_char2(c: char, stay_in_completion: bool) -> i32 {
     let mut len: size_t = 0;
     let mut action = cmd_uchar(c as c_char, &mut len);
     if action != CC_PASS {
@@ -1449,7 +1390,10 @@ unsafe extern "C" fn cmd_char2(c: char, stay_in_completion: bool) -> i32 {
          * Insert the char, even if it is a line-editing char.
          */
         literal = LFALSE;
-        return cmd_ichar(std::slice::from_raw_parts(cmd_mbc_buf.as_ptr() as *const u8, len as usize));
+        return cmd_ichar(std::slice::from_raw_parts(
+            cmd_mbc_buf.as_ptr() as *const u8,
+            len as usize,
+        ));
     }
 
     /*
@@ -1465,7 +1409,10 @@ unsafe extern "C" fn cmd_char2(c: char, stay_in_completion: bool) -> i32 {
     /*
      * Insert the char into the command buffer.
      */
-    return cmd_ichar(std::slice::from_raw_parts(cmd_mbc_buf.as_ptr() as *const u8, len as usize)) as i32;
+    return cmd_ichar(std::slice::from_raw_parts(
+        cmd_mbc_buf.as_ptr() as *const u8,
+        len as usize,
+    )) as i32;
 }
 pub unsafe fn cmd_char(c: char) -> i32 {
     return cmd_char2(c, false);
@@ -1541,7 +1488,7 @@ pub unsafe fn cmd_lastpattern() -> Option<&'static CStr> {
     }
     (*(*(*curr_mlist).curr_mp).prev).string.as_deref()
 }
-unsafe extern "C" fn mlist_size(mut ml: *mut mlist) -> i32 {
+unsafe fn mlist_size(mut ml: *mut mlist) -> i32 {
     let mut size: i32 = 0 as i32;
     ml = (*ml).next;
     while (*ml).string.is_some() {
@@ -1553,17 +1500,20 @@ unsafe extern "C" fn mlist_size(mut ml: *mut mlist) -> i32 {
 /*
  * Get the name of the history file.
  */
-unsafe extern "C" fn histfile_find(mut must_exist: lbool) -> *mut c_char {
+unsafe fn histfile_find(mut must_exist: lbool) -> *mut c_char {
     let home_cstring = CString::new(lgetenv("HOME").unwrap_or_default()).unwrap();
     let mut home: *const c_char = home_cstring.as_ptr();
     let mut name: *mut c_char = 0 as *mut c_char;
     /* Try in $XDG_STATE_HOME, then in $HOME/.local/state, then in $XDG_DATA_HOME, then in $HOME. */
-    let xdg_state_cstring = lgetenv("XDG_STATE_HOME").ok().map(|s| CString::new(s).unwrap());
-    let xdg_state_ptr = xdg_state_cstring.as_ref().map_or(0 as *const c_char, |c| c.as_ptr());
+    let xdg_state_cstring = lgetenv("XDG_STATE_HOME")
+        .ok()
+        .map(|s| CString::new(s).unwrap());
+    let xdg_state_ptr = xdg_state_cstring
+        .as_ref()
+        .map_or(0 as *const c_char, |c| c.as_ptr());
     name = dirfile(
         xdg_state_ptr,
-        &*(b".lesshst\0" as *const u8 as *const c_char)
-            .offset(1 as i32 as isize),
+        &*(b".lesshst\0" as *const u8 as *const c_char).offset(1 as i32 as isize),
         must_exist as i32,
     );
     if name.is_null() {
@@ -1575,20 +1525,22 @@ unsafe extern "C" fn histfile_find(mut must_exist: lbool) -> *mut c_char {
         if !dir.is_null() {
             name = dirfile(
                 dir,
-                &*(b".lesshst\0" as *const u8 as *const c_char)
-                    .offset(1 as i32 as isize),
+                &*(b".lesshst\0" as *const u8 as *const c_char).offset(1 as i32 as isize),
                 must_exist as i32,
             );
             free(dir as *mut c_void);
         }
     }
     if name.is_null() {
-        let xdg_data_cstring = lgetenv("XDG_DATA_HOME").ok().map(|s| CString::new(s).unwrap());
-        let xdg_data_ptr = xdg_data_cstring.as_ref().map_or(0 as *const c_char, |c| c.as_ptr());
+        let xdg_data_cstring = lgetenv("XDG_DATA_HOME")
+            .ok()
+            .map(|s| CString::new(s).unwrap());
+        let xdg_data_ptr = xdg_data_cstring
+            .as_ref()
+            .map_or(0 as *const c_char, |c| c.as_ptr());
         name = dirfile(
             xdg_data_ptr,
-            &*(b".lesshst\0" as *const u8 as *const c_char)
-                .offset(1 as i32 as isize),
+            &*(b".lesshst\0" as *const u8 as *const c_char).offset(1 as i32 as isize),
             must_exist as i32,
         );
     }
@@ -1601,7 +1553,7 @@ unsafe extern "C" fn histfile_find(mut must_exist: lbool) -> *mut c_char {
     }
     return name;
 }
-unsafe extern "C" fn histfile_name(mut must_exist: lbool) -> *mut c_char {
+unsafe fn histfile_name(mut must_exist: lbool) -> *mut c_char {
     let mut wname: *mut c_char = 0 as *mut c_char;
     /* See if filename is explicitly specified by $LESSHISTFILE. */
     if let Ok(name) = lgetenv("LESSHISTFILE") {
@@ -1630,7 +1582,7 @@ unsafe extern "C" fn histfile_name(mut must_exist: lbool) -> *mut c_char {
  * Read a .lesshst file and call a callback for each line in the file.
  */
 unsafe fn read_cmdhist2(
-    action: Option<unsafe extern "C" fn(*mut c_void, *mut mlist, *const c_char)>,
+    action: Option<unsafe fn(*mut c_void, *mut mlist, *const c_char)>,
     uparam: *mut c_void,
     mut skip_search: i32,
     mut skip_shell: i32,
@@ -1685,10 +1637,8 @@ unsafe fn read_cmdhist2(
     }
     /* File is closed when `reader` drops at end of scope. */
 }
-unsafe extern "C" fn read_cmdhist(
-    mut action: Option<
-        unsafe extern "C" fn(*mut c_void, *mut mlist, *const c_char) -> (),
-    >,
+unsafe fn read_cmdhist(
+    mut action: Option<unsafe fn(*mut c_void, *mut mlist, *const c_char)>,
     mut uparam: *mut c_void,
     mut skip_search: lbool,
     mut skip_shell: lbool,
@@ -1696,19 +1646,14 @@ unsafe extern "C" fn read_cmdhist(
     if secure_allow((1 as i32) << 4 as i32) == 0 {
         return;
     }
-    read_cmdhist2(
-        action,
-        uparam,
-        skip_search as i32,
-        skip_shell as i32,
-    );
+    read_cmdhist2(action, uparam, skip_search as i32, skip_shell as i32);
     (Some(action.expect("non-null function pointer"))).expect("non-null function pointer")(
         uparam,
         0 as *mut mlist,
         0 as *const c_char,
     ); /* signal end of file */
 }
-unsafe extern "C" fn addhist_init(
+unsafe fn addhist_init(
     mut uparam: *mut c_void,
     mut ml: *mut mlist,
     mut string: *const c_char,
@@ -1724,14 +1669,7 @@ unsafe extern "C" fn addhist_init(
  */
 pub unsafe fn init_cmdhist() {
     read_cmdhist(
-        Some(
-            addhist_init
-                as unsafe extern "C" fn(
-                    *mut c_void,
-                    *mut mlist,
-                    *const c_char,
-                ) -> (),
-        ),
+        Some(addhist_init as unsafe fn(*mut c_void, *mut mlist, *const c_char)),
         0 as *mut c_void,
         LFALSE,
         LFALSE,
@@ -1765,23 +1703,20 @@ unsafe fn write_mlist(mut ml: *mut mlist, f: &mut BufWriter<File>) {
 /*
  * Make a temp name in the same directory as filename.
  */
-unsafe extern "C" fn make_tempname(mut filename: *const c_char) -> *mut c_char {
+unsafe fn make_tempname(mut filename: *const c_char) -> *mut c_char {
     let mut lastch: c_char = 0;
     let mut tempname: *mut c_char = ecalloc(
         1 as i32 as size_t,
         (strlen(filename)).wrapping_add(1 as i32 as u64),
     ) as *mut c_char;
     strcpy(tempname, filename);
-    lastch = *tempname.offset(
-        (strlen(tempname)).wrapping_sub(1 as i32 as u64) as isize,
-    );
-    *tempname.offset(
-        (strlen(tempname)).wrapping_sub(1 as i32 as u64) as isize,
-    ) = (if lastch as i32 == 'Q' as i32 {
-        'Z' as i32
-    } else {
-        'Q' as i32
-    }) as c_char;
+    lastch = *tempname.offset((strlen(tempname)).wrapping_sub(1 as i32 as u64) as isize);
+    *tempname.offset((strlen(tempname)).wrapping_sub(1 as i32 as u64) as isize) =
+        (if lastch as i32 == 'Q' as i32 {
+            'Z' as i32
+        } else {
+            'Q' as i32
+        }) as c_char;
     return tempname;
 }
 /*
@@ -1789,11 +1724,7 @@ unsafe extern "C" fn make_tempname(mut filename: *const c_char) -> *mut c_char {
  * At the end of each mlist, append any new entries
  * created during this session.
  */
-unsafe extern "C" fn copy_hist(
-    uparam: *mut c_void,
-    ml: *mut mlist,
-    string: *const c_char,
-) {
+unsafe fn copy_hist(uparam: *mut c_void, ml: *mut mlist, string: *const c_char) {
     let ctx: *mut save_ctx = uparam as *mut save_ctx;
     let fout = &mut *(*ctx).fout;
     if !ml.is_null() && ml != (*ctx).mlist {
@@ -1840,7 +1771,7 @@ fn make_file_private(f: &File) {
 /*
  * Does the history file need to be updated?
  */
-unsafe extern "C" fn histfile_modified() -> lbool {
+unsafe fn histfile_modified() -> lbool {
     if mlist_search.modified as u64 != 0 {
         return LTRUE;
     }
@@ -1889,10 +1820,7 @@ pub unsafe fn save_cmdhist() {
         ctx.fout = &mut fout as *mut BufWriter<File>;
         ctx.mlist = std::ptr::null_mut();
         read_cmdhist(
-            Some(
-                copy_hist
-                    as unsafe extern "C" fn(*mut c_void, *mut mlist, *const c_char) -> (),
-            ),
+            Some(copy_hist as unsafe fn(*mut c_void, *mut mlist, *const c_char)),
             &mut ctx as *mut save_ctx as *mut c_void,
             skip_search as lbool,
             skip_shell as lbool,
